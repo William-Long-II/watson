@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import pngToIco from 'png-to-ico';
 import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +17,7 @@ const sizes = [
 ];
 
 async function generateIcons() {
+  // Generate PNG icons
   for (const { name, size } of sizes) {
     await sharp(svgContent)
       .resize(size, size)
@@ -24,12 +26,21 @@ async function generateIcons() {
     console.log(`Generated ${name}`);
   }
 
-  // Also generate ICO for Windows (just copy the 256px as base)
-  await sharp(svgContent)
-    .resize(256, 256)
-    .png()
-    .toFile(join(iconsDir, 'icon.ico'));
-  console.log('Generated icon.ico (as PNG, may need conversion for true ICO)');
+  // Generate proper Windows ICO file with multiple sizes
+  const icoSizes = [16, 32, 48, 64, 128, 256];
+  const pngBuffers = [];
+
+  for (const size of icoSizes) {
+    const buffer = await sharp(svgContent)
+      .resize(size, size)
+      .png()
+      .toBuffer();
+    pngBuffers.push(buffer);
+  }
+
+  const icoBuffer = await pngToIco(pngBuffers);
+  writeFileSync(join(iconsDir, 'icon.ico'), icoBuffer);
+  console.log('Generated icon.ico (proper Windows ICO with multiple sizes)');
 }
 
 generateIcons().catch(console.error);
