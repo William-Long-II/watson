@@ -4170,6 +4170,7 @@ version = "0.1.0"
 dependencies = [
  "directories",
  "fuzzy-matcher",
+ "open",
  "rusqlite",
  "serde",
  "serde_json",

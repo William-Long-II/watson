@@ -1,8 +1,10 @@
+mod actions;
 mod config;
 mod db;
 mod indexers;
 mod search;
 
+use actions::system::{execute_command, get_system_commands};
 use config::settings::Settings;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
@@ -47,46 +49,98 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
     let settings = state.settings.read().unwrap();
     let apps = state.indexed_apps.read().unwrap();
 
-    // Convert apps to search results
-    let mut items: Vec<SearchResult> = apps
-        .iter()
-        .map(|app| SearchResult {
-            id: app.id.clone(),
-            name: app.name.clone(),
-            description: "Application".to_string(),
-            icon: app.icon_cache_path.clone(),
-            result_type: ResultType::Application,
-            score: 0,
-            action: SearchAction::LaunchApp {
-                path: app.path.clone(),
-            },
-        })
-        .collect();
+    let mut items: Vec<SearchResult> = Vec::new();
 
-    // Add web search results
+    // Check for web search keyword match first
     for ws in &settings.web_searches {
         if query.starts_with(&format!("{} ", ws.keyword)) {
             let search_query = query.strip_prefix(&format!("{} ", ws.keyword)).unwrap();
-            let url = ws.url.replace("{query}", &urlencoding::encode(search_query));
-            items.insert(
-                0,
-                SearchResult {
+            if !search_query.is_empty() {
+                let url = if ws.requires_setup && ws.instance.is_none() {
+                    continue; // Skip if requires setup but not configured
+                } else if ws.requires_setup {
+                    ws.url
+                        .replace("{instance}", ws.instance.as_ref().unwrap())
+                        .replace("{query}", &urlencoding::encode(search_query))
+                } else {
+                    ws.url.replace("{query}", &urlencoding::encode(search_query))
+                };
+
+                items.push(SearchResult {
                     id: format!("web:{}", ws.keyword),
                     name: format!("{}: {}", ws.name, search_query),
                     description: "Web Search".to_string(),
                     icon: ws.icon.clone(),
                     result_type: ResultType::WebSearch,
-                    score: 1000,
+                    score: 10000, // High score to appear first
                     action: SearchAction::OpenUrl { url },
+                });
+            }
+        }
+    }
+
+    // Check for system command prefix
+    let is_command_query = query.starts_with('>');
+    let command_query = if is_command_query {
+        query.strip_prefix('>').unwrap_or(&query).trim()
+    } else {
+        &query
+    };
+
+    // Add system commands
+    for cmd in get_system_commands() {
+        let matches = cmd.aliases.iter().any(|alias| {
+            alias.to_lowercase().contains(&command_query.to_lowercase())
+        });
+
+        if matches || is_command_query {
+            items.push(SearchResult {
+                id: cmd.id.clone(),
+                name: cmd.name.clone(),
+                description: cmd.description.clone(),
+                icon: Some("system".to_string()),
+                result_type: ResultType::SystemCommand,
+                score: if is_command_query { 5000 } else { 0 },
+                action: SearchAction::RunCommand { command: cmd.id },
+            });
+        }
+    }
+
+    // Add apps (skip if web search or command prefix)
+    if !query.contains(' ') || (!is_command_query && items.is_empty()) {
+        for app in apps.iter() {
+            items.push(SearchResult {
+                id: app.id.clone(),
+                name: app.name.clone(),
+                description: "Application".to_string(),
+                icon: app.icon_cache_path.clone(),
+                result_type: ResultType::Application,
+                score: 0,
+                action: SearchAction::LaunchApp {
+                    path: app.path.clone(),
                 },
-            );
+            });
         }
     }
 
     // Search and limit results
-    let mut results = state.search_engine.search(&query, items);
+    let mut results = if is_command_query {
+        state.search_engine.search(command_query, items)
+    } else {
+        state.search_engine.search(&query, items)
+    };
+
     results.truncate(settings.search.max_results);
     results
+}
+
+#[tauri::command]
+fn execute_action(action: SearchAction) -> Result<(), String> {
+    match action {
+        SearchAction::LaunchApp { path } => actions::launch_app(&path),
+        SearchAction::OpenUrl { url } => actions::open_url(&url),
+        SearchAction::RunCommand { command } => execute_command(&command),
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -108,7 +162,8 @@ pub fn run() {
             get_settings,
             save_settings_cmd,
             reindex_apps,
-            search
+            search,
+            execute_action
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
