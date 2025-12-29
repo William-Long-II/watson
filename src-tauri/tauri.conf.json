@@ -14,7 +14,13 @@
       {
         "title": "Watson",
         "width": 600,
-        "height": 400
+        "height": 400,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "center": true,
+        "visible": false
       }
     ],
     "security": {
