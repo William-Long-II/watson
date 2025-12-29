@@ -19,6 +19,7 @@ pub enum ResultType {
     Application,
     WebSearch,
     SystemCommand,
+    Clipboard,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +28,7 @@ pub enum SearchAction {
     LaunchApp { path: String },
     OpenUrl { url: String },
     RunCommand { command: String },
+    CopyClipboard { content: String },
 }
 
 pub struct SearchEngine {

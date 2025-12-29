@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="hatGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a4a4a"/>
+      <stop offset="100%" style="stop-color:#2a2a2a"/>
+    </linearGradient>
+    <linearGradient id="bandGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#d97706"/>
+      <stop offset="50%" style="stop-color:#f59e0b"/>
+      <stop offset="100%" style="stop-color:#d97706"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="#1e1e2e"/>
+
+  <!-- Bowler hat dome -->
+  <ellipse cx="256" cy="200" rx="120" ry="100" fill="url(#hatGradient)"/>
+
+  <!-- Hat top highlight -->
+  <ellipse cx="256" cy="140" rx="60" ry="25" fill="#5a5a5a" opacity="0.5"/>
+
+  <!-- Hat brim -->
+  <ellipse cx="256" cy="300" rx="180" ry="45" fill="url(#hatGradient)"/>
+
+  <!-- Brim top surface -->
+  <ellipse cx="256" cy="290" rx="170" ry="35" fill="#3a3a3a"/>
+
+  <!-- Hat band -->
+  <rect x="136" y="260" width="240" height="30" rx="5" fill="url(#bandGradient)"/>
+
+  <!-- Band buckle -->
+  <rect x="236" y="265" width="40" height="20" rx="3" fill="#fbbf24"/>
+  <rect x="244" y="270" width="24" height="10" rx="2" fill="#1e1e2e"/>
+
+  <!-- Subtle shine on dome -->
+  <ellipse cx="220" cy="170" rx="30" ry="50" fill="white" opacity="0.1"/>
+</svg>
