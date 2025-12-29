@@ -33,3 +33,6 @@ impl AppIndexer for StubIndexer {
     fn index_apps(&self) -> Vec<AppEntry> { vec![] }
     fn get_app_icon(&self, _app: &AppEntry) -> Option<Vec<u8>> { None }
 }
+
+#[cfg(test)]
+mod tests;
