@@ -21,3 +21,4 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 toml = "0.8"
 directories = "5.0"
 fuzzy-matcher = "0.3"
+urlencoding = "2.1"
