@@ -43,3 +43,6 @@ pub fn save_settings(settings: &Settings) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

@@ -65,3 +65,6 @@ impl Default for SearchEngine {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests;
