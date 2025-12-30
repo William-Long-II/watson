@@ -397,12 +397,18 @@ function App() {
     <div className="bg-[var(--background)] text-[var(--foreground)] rounded-xl overflow-hidden border border-[var(--border)] shadow-2xl">
       {/* Header - draggable */}
       <div
-        onMouseDown={(e) => {
+        data-tauri-drag-region
+        onMouseDown={async (e) => {
           // Only start drag if clicking on the header itself, not buttons
           if ((e.target as HTMLElement).closest('button')) return;
-          getCurrentWindow().startDragging();
+          e.preventDefault();
+          try {
+            await getCurrentWindow().startDragging();
+          } catch (err) {
+            console.error('Failed to start dragging:', err);
+          }
         }}
-        className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] cursor-move"
+        className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] cursor-move select-none"
       >
         <div className="flex items-center gap-2 pointer-events-none">
           <WatsonLogo />
