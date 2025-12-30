@@ -7,9 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.1] - 2025-12-30
+## [1.1.1] - 2024-12-29
 
-  ### Added   - Auto-update functionality with "Check for Updates" in settings    ### Fixed   - Window dragging on Windows   - Transparency issues on Windows   - Dynamic version display
+### Added
+- Auto-update functionality with "Check for Updates" button in settings
+- Automatic download and install of updates from GitHub releases
+
+### Fixed
+- Window dragging now works on Windows (added missing permissions)
+- Windows transparency issues resolved (removed blue border and shadow artifacts)
+- Version display now shows actual version from app config instead of hardcoded value
+
+### Changed
+- Disabled window transparency for better cross-platform compatibility
+- Window now uses solid background color
 
 ## [1.0.2] - 2024-12-29
 
