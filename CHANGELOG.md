@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Upgraded tauri-plugin-updater to v2.10+ for latest.json compatibility
+- Fixed truncated public key in updater config
 
 ## [1.2.4] - 2025-12-30
 
