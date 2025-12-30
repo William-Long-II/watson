@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.2.0] - 2025-12-30
 
+### Fixed
+- Release workflow multiline output handling (EOF delimiter issue)
+- Release workflow bash/node script syntax errors
+
+### Security
+- Regenerated signing keys after accidental commit
+- Added `*.key` patterns to .gitignore
+
 ## [1.1.1] - 2024-12-29
 
 ### Added
