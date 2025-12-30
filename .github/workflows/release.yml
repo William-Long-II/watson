@@ -42,6 +42,8 @@ jobs:
 
       - name: Bump version
         id: bump
+        env:
+          CHANGELOG_INPUT: ${{ inputs.changelog }}
         run: |
           # Get current version
           CURRENT=$(node -p "require('./package.json').version")
@@ -58,14 +60,28 @@ jobs:
           # Update tauri.conf.json
           sed -i 's/"version": ".*"/"version": "'$NEW_VERSION'"/' src-tauri/tauri.conf.json
 
-          # Update CHANGELOG.md - move [Unreleased] content to new version
+          # Update CHANGELOG.md
           TODAY=$(date +%Y-%m-%d)
-          CHANGELOG_ENTRY="## [$NEW_VERSION] - $TODAY
 
-${{ inputs.changelog }}
-"
-          # Insert new version after [Unreleased] section header, replacing it
-          sed -i "s/## \[Unreleased\].*/$CHANGELOG_ENTRY\n## [Unreleased]\n\n(No changes yet)/" CHANGELOG.md
+          # Create new changelog entry file
+          cat > /tmp/new_entry.md << ENTRY_EOF
+          ## [$NEW_VERSION] - $TODAY
+
+          $CHANGELOG_INPUT
+
+          ENTRY_EOF
+
+          # Use node to update changelog (more reliable than sed for multiline)
+          node -e "
+            const fs = require('fs');
+            const entry = fs.readFileSync('/tmp/new_entry.md', 'utf8').trim();
+            let changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            changelog = changelog.replace(
+              /## \[Unreleased\][\\s\\S]*?(?=## \[|$)/,
+              '## [Unreleased]\\n\\n' + entry + '\\n\\n'
+            );
+            fs.writeFileSync('CHANGELOG.md', changelog);
+          "
 
           # Commit and tag
           git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
