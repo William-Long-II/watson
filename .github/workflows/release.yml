@@ -11,6 +11,10 @@ on:
           - patch
           - minor
           - major
+      changelog:
+        description: 'Changelog entry (what changed in this release)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -54,8 +58,17 @@ jobs:
           # Update tauri.conf.json
           sed -i 's/"version": ".*"/"version": "'$NEW_VERSION'"/' src-tauri/tauri.conf.json
 
+          # Update CHANGELOG.md - move [Unreleased] content to new version
+          TODAY=$(date +%Y-%m-%d)
+          CHANGELOG_ENTRY="## [$NEW_VERSION] - $TODAY
+
+${{ inputs.changelog }}
+"
+          # Insert new version after [Unreleased] section header, replacing it
+          sed -i "s/## \[Unreleased\].*/$CHANGELOG_ENTRY\n## [Unreleased]\n\n(No changes yet)/" CHANGELOG.md
+
           # Commit and tag
-          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
           git commit -m "chore(release): v$NEW_VERSION"
           git tag "v$NEW_VERSION"
           git push origin main --tags
@@ -73,6 +86,10 @@ jobs:
 
             A fast, cross-platform productivity launcher.
 
+            ### What's New
+
+            ${{ inputs.changelog }}
+
             ### Installation
 
             Download the appropriate file for your platform:
@@ -80,9 +97,8 @@ jobs:
             - **macOS**: `.dmg`
             - **Linux**: `.deb` or `.AppImage`
 
-            ### Changelog
-
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+            ---
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for full history.
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4735,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "watson"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "arboard",
  "chrono",
