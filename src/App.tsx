@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 import { SearchBar } from './components/SearchBar';
 import { ResultsList } from './components/ResultsList';
 import { useAppStore } from './stores/app';
@@ -145,6 +149,37 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { settings, saveSettings, reindexApps } = useAppStore();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [version, setVersion] = useState('');
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error'>('idle');
+  const [updateError, setUpdateError] = useState('');
+
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => setVersion('unknown'));
+  }, []);
+
+  const checkForUpdates = async () => {
+    setUpdateStatus('checking');
+    setUpdateError('');
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateStatus('available');
+        // Auto-download
+        setUpdateStatus('downloading');
+        await update.downloadAndInstall();
+        setUpdateStatus('ready');
+      } else {
+        setUpdateStatus('none');
+      }
+    } catch (err) {
+      setUpdateStatus('error');
+      setUpdateError(err instanceof Error ? err.message : 'Update check failed');
+    }
+  };
+
+  const handleRelaunch = async () => {
+    await relaunch();
+  };
 
   if (!settings) return null;
 
@@ -285,11 +320,42 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* Updates */}
+        <div>
+          <label className="text-sm text-gray-500 mb-2 block">Updates</label>
+          <div className="flex flex-wrap items-center gap-2">
+            {updateStatus === 'ready' ? (
+              <button
+                onClick={handleRelaunch}
+                className="px-3 py-1.5 rounded-lg text-sm bg-green-500 text-white hover:bg-green-600 transition-colors"
+              >
+                Restart to Update
+              </button>
+            ) : (
+              <button
+                onClick={checkForUpdates}
+                disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+                className="px-3 py-1.5 rounded-lg text-sm bg-[var(--input-bg)] hover:bg-[var(--selected)] transition-colors disabled:opacity-50"
+              >
+                {updateStatus === 'checking' ? 'Checking...' :
+                 updateStatus === 'downloading' ? 'Downloading...' :
+                 'Check for Updates'}
+              </button>
+            )}
+            {updateStatus === 'none' && (
+              <span className="text-xs text-green-500">Up to date</span>
+            )}
+            {updateStatus === 'error' && (
+              <span className="text-xs text-red-500">{updateError || 'Update failed'}</span>
+            )}
+          </div>
+        </div>
+
         {/* Help & About */}
         <div className="text-xs text-gray-400 pt-2 border-t border-[var(--border)]">
           <p>Hotkey: Alt+Space</p>
           <p>Type <span className="text-blue-400 font-mono">cb</span> for clipboard history</p>
-          <p className="mt-2 text-gray-500">Watson v1.0.0</p>
+          <p className="mt-2 text-gray-500">Watson v{version}</p>
         </div>
       </div>
     </div>
@@ -331,7 +397,11 @@ function App() {
     <div className="bg-[var(--background)] text-[var(--foreground)] rounded-xl overflow-hidden border border-[var(--border)] shadow-2xl">
       {/* Header - draggable */}
       <div
-        data-tauri-drag-region
+        onMouseDown={(e) => {
+          // Only start drag if clicking on the header itself, not buttons
+          if ((e.target as HTMLElement).closest('button')) return;
+          getCurrentWindow().startDragging();
+        }}
         className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] cursor-move"
       >
         <div className="flex items-center gap-2 pointer-events-none">

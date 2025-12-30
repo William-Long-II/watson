@@ -141,6 +141,7 @@ jobs:
         with:
           releaseId: ${{ needs.version-and-release.outputs.release_id }}
           args: --target ${{ matrix.target }}
+          updaterJsonPreferNsis: true
 
   publish:
     needs: [version-and-release, build]

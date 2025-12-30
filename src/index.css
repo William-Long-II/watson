@@ -17,9 +17,11 @@
 }
 
 html, body, #root {
-  background: transparent;
+  background: var(--background);
   margin: 0;
   padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 body {

@@ -17,10 +17,11 @@
         "height": 400,
         "resizable": false,
         "decorations": false,
-        "transparent": true,
+        "transparent": false,
         "alwaysOnTop": true,
         "center": true,
-        "visible": true
+        "visible": true,
+        "shadow": false
       }
     ],
     "security": {
@@ -37,5 +38,13 @@
       "icons/icon.png",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/William-Long-II/watson/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
   }
 }
