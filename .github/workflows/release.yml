@@ -57,12 +57,15 @@ jobs:
           # Update CHANGELOG.md - move [Unreleased] content to new version
           TODAY=$(date +%Y-%m-%d)
 
-          node -e "
+          node << NODESCRIPT
             const fs = require('fs');
+            const NEW_VERSION = '${NEW_VERSION}';
+            const TODAY = '${TODAY}';
+
             let changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
 
             // Extract content between [Unreleased] and next version header
-            const match = changelog.match(/## \[Unreleased\]\s*([\s\S]*?)(?=\n## \[|$)/);
+            const match = changelog.match(/## \[Unreleased\]\s*([\s\S]*?)(?=\n## \[|\$)/);
             const unreleasedContent = match ? match[1].trim() : '';
 
             if (!unreleasedContent || unreleasedContent === '(No changes yet)') {
@@ -71,7 +74,7 @@ jobs:
             }
 
             // Create new version section
-            const newSection = '## [$NEW_VERSION] - $TODAY\n\n' + unreleasedContent;
+            const newSection = '## [' + NEW_VERSION + '] - ' + TODAY + '\n\n' + unreleasedContent;
 
             // Replace [Unreleased] content with empty and insert new version
             changelog = changelog.replace(
@@ -84,7 +87,7 @@ jobs:
             // Output changelog for release notes
             fs.writeFileSync('/tmp/release_notes.md', unreleasedContent);
             console.log('Changelog updated successfully');
-          ".replace(/\$NEW_VERSION/g, "$NEW_VERSION").replace(/\$TODAY/g, "$TODAY")
+          NODESCRIPT
 
           # Save release notes for later
           echo "release_notes<<EOF" >> $GITHUB_OUTPUT
