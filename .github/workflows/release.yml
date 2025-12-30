@@ -11,10 +11,6 @@ on:
           - patch
           - minor
           - major
-      changelog:
-        description: 'Changelog entry (what changed in this release)'
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -42,8 +38,6 @@ jobs:
 
       - name: Bump version
         id: bump
-        env:
-          CHANGELOG_INPUT: ${{ inputs.changelog }}
         run: |
           # Get current version
           CURRENT=$(node -p "require('./package.json').version")
@@ -60,28 +54,42 @@ jobs:
           # Update tauri.conf.json
           sed -i 's/"version": ".*"/"version": "'$NEW_VERSION'"/' src-tauri/tauri.conf.json
 
-          # Update CHANGELOG.md
+          # Update CHANGELOG.md - move [Unreleased] content to new version
           TODAY=$(date +%Y-%m-%d)
 
-          # Create new changelog entry file
-          cat > /tmp/new_entry.md << ENTRY_EOF
-          ## [$NEW_VERSION] - $TODAY
-
-          $CHANGELOG_INPUT
-
-          ENTRY_EOF
-
-          # Use node to update changelog (more reliable than sed for multiline)
           node -e "
             const fs = require('fs');
-            const entry = fs.readFileSync('/tmp/new_entry.md', 'utf8').trim();
             let changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+
+            // Extract content between [Unreleased] and next version header
+            const match = changelog.match(/## \[Unreleased\]\s*([\s\S]*?)(?=\n## \[|$)/);
+            const unreleasedContent = match ? match[1].trim() : '';
+
+            if (!unreleasedContent || unreleasedContent === '(No changes yet)') {
+              console.error('ERROR: No changes in [Unreleased] section. Update CHANGELOG.md before releasing.');
+              process.exit(1);
+            }
+
+            // Create new version section
+            const newSection = '## [$NEW_VERSION] - $TODAY\n\n' + unreleasedContent;
+
+            // Replace [Unreleased] content with empty and insert new version
             changelog = changelog.replace(
-              /## \[Unreleased\][\\s\\S]*?(?=## \[|$)/,
-              '## [Unreleased]\\n\\n' + entry + '\\n\\n'
+              /## \[Unreleased\]\s*[\s\S]*?(?=\n## \[)/,
+              '## [Unreleased]\n\n\n' + newSection + '\n\n'
             );
+
             fs.writeFileSync('CHANGELOG.md', changelog);
-          "
+
+            // Output changelog for release notes
+            fs.writeFileSync('/tmp/release_notes.md', unreleasedContent);
+            console.log('Changelog updated successfully');
+          ".replace(/\$NEW_VERSION/g, "$NEW_VERSION").replace(/\$TODAY/g, "$TODAY")
+
+          # Save release notes for later
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
           # Commit and tag
           git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json CHANGELOG.md
@@ -104,7 +112,7 @@ jobs:
 
             ### What's New
 
-            ${{ inputs.changelog }}
+            ${{ steps.bump.outputs.release_notes }}
 
             ### Installation
 
