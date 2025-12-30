@@ -31,6 +31,10 @@ export function SearchBar() {
           hideWindow();
         }
         break;
+      case 'Tab':
+        e.preventDefault();
+        moveSelection(e.shiftKey ? -1 : 1);
+        break;
     }
   };
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tab/Shift+Tab keyboard shortcuts to cycle through search results
+
 
 ## [1.2.0] - 2025-12-30
 
