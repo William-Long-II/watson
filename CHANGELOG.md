@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Auto-updater now generates `latest.json` manifest (added tagName to tauri-action)
 
 ## [1.2.2] - 2025-12-30
+
+### Changed
+- Updated macOS x86_64 runner from deprecated macos-13 to macos-15-intel
 
 ## [1.2.1] - 2025-12-30
 
