@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.2.0] - 2025-12-30
+
 ## [1.1.1] - 2024-12-29
 
 ### Added
@@ -21,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Disabled window transparency for better cross-platform compatibility
 - Window now uses solid background color
+
 
 ## [1.0.2] - 2024-12-29
 
