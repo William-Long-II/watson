@@ -11,6 +11,7 @@ mod search;
 use actions::system::{execute_command, get_system_commands};
 use clipboard::ClipboardManager;
 use config::settings::Settings;
+use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
 use notes::NotesManager;
 use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
@@ -34,6 +35,7 @@ struct AppState {
     clipboard: ClipboardManager,
     scratchpad: ScratchpadManager,
     notes: NotesManager,
+    file_search: Arc<FileSearchManager>,
 }
 
 #[tauri::command]
@@ -294,6 +296,42 @@ fn get_recent_notes(limit: usize, state: State<AppState>) -> Result<Vec<notes::N
     state.notes.get_recent(limit)
 }
 
+#[tauri::command]
+fn search_files(query: String, limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.search(&query, limit)
+}
+
+#[tauri::command]
+fn search_files_by_extension(extension: String, limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.search_by_extension(&extension, limit)
+}
+
+#[tauri::command]
+fn get_recent_files(limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.get_recent(limit)
+}
+
+#[tauri::command]
+fn reindex_files(state: State<AppState>) -> usize {
+    let settings = state.settings.read().unwrap();
+    if !settings.file_search.enabled {
+        return 0;
+    }
+
+    let indexer = FileIndexer::new(
+        Arc::clone(&state.file_search),
+        settings.file_search.indexed_paths.clone(),
+        settings.file_search.excluded_patterns.clone(),
+        settings.file_search.max_depth,
+    );
+    indexer.index_all()
+}
+
+#[tauri::command]
+fn clear_file_index(state: State<AppState>) -> Result<(), String> {
+    state.file_search.clear_all()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
@@ -312,6 +350,9 @@ pub fn run() {
     let clipboard = ClipboardManager::new(50); // Store last 50 entries
     clipboard.start_monitoring();
 
+    // Initialize file search manager
+    let file_search = Arc::new(FileSearchManager::new(Arc::clone(&db)));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -325,6 +366,7 @@ pub fn run() {
             clipboard,
             scratchpad,
             notes,
+            file_search,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -392,7 +434,12 @@ pub fn run() {
             delete_note,
             get_note,
             search_notes,
-            get_recent_notes
+            get_recent_notes,
+            search_files,
+            search_files_by_extension,
+            get_recent_files,
+            reindex_files,
+            clear_file_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
