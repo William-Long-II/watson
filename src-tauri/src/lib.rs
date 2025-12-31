@@ -10,6 +10,7 @@ mod search;
 use actions::system::{execute_command, get_system_commands};
 use clipboard::ClipboardManager;
 use config::settings::Settings;
+use notes::NotesManager;
 use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
@@ -31,6 +32,7 @@ struct AppState {
     settings: RwLock<Settings>,
     clipboard: ClipboardManager,
     scratchpad: ScratchpadManager,
+    notes: NotesManager,
 }
 
 #[tauri::command]
@@ -261,10 +263,46 @@ fn clear_scratchpad(state: State<AppState>) -> Result<(), String> {
     state.scratchpad.clear()
 }
 
+#[tauri::command]
+fn create_note(title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
+    state.notes.create(&title, &content)
+}
+
+#[tauri::command]
+fn update_note(id: String, title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
+    state.notes.update(&id, &title, &content)
+}
+
+#[tauri::command]
+fn delete_note(id: String, state: State<AppState>) -> Result<(), String> {
+    state.notes.delete(&id)
+}
+
+#[tauri::command]
+fn get_note(id: String, state: State<AppState>) -> Result<Option<notes::Note>, String> {
+    state.notes.get(&id)
+}
+
+#[tauri::command]
+fn search_notes(query: String, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.search(&query)
+}
+
+#[tauri::command]
+fn get_recent_notes(limit: usize, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.get_recent(limit)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
     let scratchpad = ScratchpadManager::new(Arc::clone(&db));
+
+    // Initialize notes manager
+    let notes_path = directories::ProjectDirs::from("com", "watson", "Watson")
+        .map(|dirs| dirs.data_dir().join("notes"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./notes"));
+    let notes = NotesManager::new(Arc::clone(&db), notes_path);
     let settings = config::load_settings();
     let indexer = get_indexer();
     let indexed_apps = indexer.index_apps();
@@ -285,6 +323,7 @@ pub fn run() {
             settings: RwLock::new(settings),
             clipboard,
             scratchpad,
+            notes,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -346,7 +385,13 @@ pub fn run() {
             copy_to_clipboard,
             get_scratchpad,
             set_scratchpad,
-            clear_scratchpad
+            clear_scratchpad,
+            create_note,
+            update_note,
+            delete_note,
+            get_note,
+            search_notes,
+            get_recent_notes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
