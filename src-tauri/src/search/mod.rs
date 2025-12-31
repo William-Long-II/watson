@@ -20,6 +20,8 @@ pub enum ResultType {
     WebSearch,
     SystemCommand,
     Clipboard,
+    Note,
+    File,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +31,8 @@ pub enum SearchAction {
     OpenUrl { url: String },
     RunCommand { command: String },
     CopyClipboard { content: String },
+    OpenNote { note_id: String },
+    OpenFile { path: String },
 }
 
 pub struct SearchEngine {

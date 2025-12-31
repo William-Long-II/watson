@@ -70,6 +70,100 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
 
     let mut items: Vec<SearchResult> = Vec::new();
 
+    // Check for notes search (n or notes keyword)
+    if query.starts_with("n ") || query.starts_with("notes ") {
+        let note_query = query
+            .strip_prefix("n ")
+            .or_else(|| query.strip_prefix("notes "))
+            .unwrap_or("");
+
+        if let Ok(notes) = if note_query.is_empty() {
+            state.notes.get_recent(8)
+        } else {
+            state.notes.search(note_query)
+        } {
+            for note in notes.into_iter().take(8) {
+                items.push(SearchResult {
+                    id: note.id.clone(),
+                    name: note.title,
+                    description: format!("Note · {}", note.tags.join(", ")),
+                    icon: Some("note".to_string()),
+                    result_type: ResultType::Note,
+                    score: 10000,
+                    action: SearchAction::OpenNote { note_id: note.id },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Show recent notes if just "n" or "notes"
+    if query == "n" || query == "notes" {
+        if let Ok(notes) = state.notes.get_recent(8) {
+            for note in notes {
+                items.push(SearchResult {
+                    id: note.id.clone(),
+                    name: note.title,
+                    description: format!("Note · {}", note.tags.join(", ")),
+                    icon: Some("note".to_string()),
+                    result_type: ResultType::Note,
+                    score: 10000,
+                    action: SearchAction::OpenNote { note_id: note.id },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Check for file search (f or files keyword)
+    if query.starts_with("f ") || query.starts_with("files ") {
+        let file_query = query
+            .strip_prefix("f ")
+            .or_else(|| query.strip_prefix("files "))
+            .unwrap_or("");
+
+        if let Ok(files) = if file_query.is_empty() {
+            state.file_search.get_recent(8)
+        } else {
+            state.file_search.search(file_query, 8)
+        } {
+            for file in files {
+                items.push(SearchResult {
+                    id: file.id.clone(),
+                    name: file.name,
+                    description: file.path.clone(),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    action: SearchAction::OpenFile { path: file.path },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Show recent files if just "f" or "files"
+    if query == "f" || query == "files" {
+        if let Ok(files) = state.file_search.get_recent(8) {
+            for file in files {
+                items.push(SearchResult {
+                    id: file.id.clone(),
+                    name: file.name,
+                    description: file.path.clone(),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    action: SearchAction::OpenFile { path: file.path },
+                });
+            }
+        }
+
+        return items;
+    }
+
     // Check for clipboard search (cb or clip keyword)
     if query.starts_with("cb ") || query.starts_with("clip ") {
         let clip_query = query
@@ -211,6 +305,13 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::OpenUrl { url } => actions::open_url(&url),
         SearchAction::RunCommand { command } => execute_command(&command),
         SearchAction::CopyClipboard { content } => state.clipboard.copy_to_clipboard(&content),
+        SearchAction::OpenNote { note_id: _ } => {
+            // Note opening is handled by the frontend
+            Ok(())
+        }
+        SearchAction::OpenFile { path } => {
+            open::that(&path).map_err(|e| e.to_string())
+        }
     }
 }
 
