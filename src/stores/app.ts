@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { SearchResult, Settings } from '../types';
+import type { SearchResult, Settings, Scratchpad } from '../types';
 
 interface AppState {
   query: string;
@@ -9,6 +9,8 @@ interface AppState {
   settings: Settings | null;
   isLoading: boolean;
   showSettings: boolean;
+  scratchpad: string;
+  scratchpadVisible: boolean;
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -20,6 +22,10 @@ interface AppState {
   hideWindow: () => Promise<void>;
   setShowSettings: (show: boolean) => void;
   resizeWindow: () => Promise<void>;
+  loadScratchpad: () => Promise<void>;
+  saveScratchpad: (content: string) => Promise<void>;
+  clearScratchpad: () => Promise<void>;
+  setShowScratchpad: (show: boolean) => void;
 }
 
 // Height constants
@@ -39,6 +45,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: null,
   isLoading: false,
   showSettings: false,
+  scratchpad: '',
+  scratchpadVisible: false,
 
   setQuery: async (query: string) => {
     set({ query, selectedIndex: 0 });
@@ -131,11 +139,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resizeWindow: async () => {
-    const { results, showSettings } = get();
+    const { results, showSettings, scratchpadVisible } = get();
 
     let height: number;
 
-    if (showSettings) {
+    if (scratchpadVisible) {
+      height = HEADER_HEIGHT + SEARCH_HEIGHT + 280 + PADDING; // Scratchpad height
+    } else if (showSettings) {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + SETTINGS_HEIGHT + PADDING;
     } else if (results.length > 0) {
       const resultsHeight = Math.min(results.length * RESULT_HEIGHT, MAX_RESULTS_HEIGHT);
@@ -149,5 +159,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Failed to resize window:', error);
     }
+  },
+
+  loadScratchpad: async () => {
+    try {
+      const pad = await invoke<Scratchpad>('get_scratchpad');
+      set({ scratchpad: pad.content });
+    } catch (e) {
+      console.error('Failed to load scratchpad:', e);
+    }
+  },
+
+  saveScratchpad: async (content: string) => {
+    try {
+      await invoke('set_scratchpad', { content });
+      set({ scratchpad: content });
+    } catch (e) {
+      console.error('Failed to save scratchpad:', e);
+    }
+  },
+
+  clearScratchpad: async () => {
+    try {
+      await invoke('clear_scratchpad');
+      set({ scratchpad: '' });
+    } catch (e) {
+      console.error('Failed to clear scratchpad:', e);
+    }
+  },
+
+  setShowScratchpad: (show: boolean) => {
+    set({ scratchpadVisible: show, showSettings: false });
+    get().resizeWindow();
   },
 }));
