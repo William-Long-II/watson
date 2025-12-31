@@ -64,3 +64,8 @@ export interface WebSearch {
   requires_setup: boolean;
   instance?: string;
 }
+
+export interface Scratchpad {
+  content: string;
+  modified_at: number;
+}
