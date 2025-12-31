@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.3.0] - 2025-12-31
+
 ### Added
 - **Notes** - Create, edit, and search markdown notes with `n` prefix (e.g., `n meeting`)
 - **Scratchpad** - Quick text capture area accessible via `s` or backtick key
