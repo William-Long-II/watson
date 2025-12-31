@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Enabled createUpdaterArtifacts in bundle config for signed updates
 
+
 ## [1.2.6] - 2025-12-30
 
 ## [1.2.5] - 2025-12-30
