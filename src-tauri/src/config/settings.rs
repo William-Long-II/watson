@@ -8,6 +8,8 @@ pub struct Settings {
     pub theme: ThemeSettings,
     #[serde(default)]
     pub web_searches: Vec<WebSearch>,
+    #[serde(default)]
+    pub file_search: FileSearchSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +74,50 @@ pub struct WebSearch {
     pub instance: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSearchSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_indexed_paths")]
+    pub indexed_paths: Vec<String>,
+    #[serde(default = "default_excluded_patterns")]
+    pub excluded_patterns: Vec<String>,
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+}
+
+impl Default for FileSearchSettings {
+    fn default() -> Self {
+        FileSearchSettings {
+            enabled: true,
+            indexed_paths: default_indexed_paths(),
+            excluded_patterns: default_excluded_patterns(),
+            max_depth: default_max_depth(),
+        }
+    }
+}
+
+fn default_indexed_paths() -> Vec<String> {
+    vec![
+        "~/Documents".to_string(),
+        "~/Downloads".to_string(),
+        "~/Desktop".to_string(),
+    ]
+}
+
+fn default_excluded_patterns() -> Vec<String> {
+    vec![
+        "node_modules".to_string(),
+        ".git".to_string(),
+        ".cache".to_string(),
+        "__pycache__".to_string(),
+        "target".to_string(),
+        ".DS_Store".to_string(),
+    ]
+}
+
+fn default_max_depth() -> usize { 5 }
+
 fn default_true() -> bool { true }
 fn default_hotkey() -> String { "Alt+Space".to_string() }
 fn default_max_results() -> usize { 8 }
@@ -102,6 +148,7 @@ impl Default for Settings {
                 custom: None,
             },
             web_searches: default_web_searches(),
+            file_search: FileSearchSettings::default(),
         }
     }
 }
