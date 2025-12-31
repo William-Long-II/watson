@@ -29,6 +29,7 @@ struct AppState {
     indexed_apps: RwLock<Vec<AppEntry>>,
     settings: RwLock<Settings>,
     clipboard: ClipboardManager,
+    scratchpad: ScratchpadManager,
 }
 
 #[tauri::command]
@@ -244,9 +245,25 @@ fn copy_to_clipboard(content: String, state: State<AppState>) -> Result<(), Stri
     state.clipboard.copy_to_clipboard(&content)
 }
 
+#[tauri::command]
+fn get_scratchpad(state: State<AppState>) -> Result<scratchpad::Scratchpad, String> {
+    state.scratchpad.get()
+}
+
+#[tauri::command]
+fn set_scratchpad(content: String, state: State<AppState>) -> Result<(), String> {
+    state.scratchpad.set(&content)
+}
+
+#[tauri::command]
+fn clear_scratchpad(state: State<AppState>) -> Result<(), String> {
+    state.scratchpad.clear()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let db = Database::new().expect("Failed to initialize database");
+    let db = Arc::new(Database::new().expect("Failed to initialize database"));
+    let scratchpad = ScratchpadManager::new(Arc::clone(&db));
     let settings = config::load_settings();
     let indexer = get_indexer();
     let indexed_apps = indexer.index_apps();
@@ -261,11 +278,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
-            db: Arc::new(db),
+            db: Arc::clone(&db),
             search_engine: SearchEngine::new(),
             indexed_apps: RwLock::new(indexed_apps),
             settings: RwLock::new(settings),
             clipboard,
+            scratchpad,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -324,7 +342,10 @@ pub fn run() {
             get_clipboard_history,
             search_clipboard,
             clear_clipboard_history,
-            copy_to_clipboard
+            copy_to_clipboard,
+            get_scratchpad,
+            set_scratchpad,
+            clear_scratchpad
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
