@@ -3,13 +3,41 @@ import { useAppStore } from '../stores/app';
 
 export function SearchBar() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const { query, setQuery, moveSelection, executeSelected, hideWindow } = useAppStore();
+  const { query, setQuery, moveSelection, executeSelected, hideWindow, setShowScratchpad, openNewNote } = useAppStore();
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Chained shortcuts when search is empty
+    if (query === '') {
+      // Scratchpad trigger: 's' or '`'
+      if (e.key === 's' || e.key === '`') {
+        e.preventDefault();
+        setShowScratchpad(true);
+        return;
+      }
+      // New note trigger: 'n' (shift+n for search mode)
+      if (e.key === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        openNewNote();
+        return;
+      }
+      // Notes search: 'N' (shift+n)
+      if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
+        e.preventDefault();
+        setQuery('n ');
+        return;
+      }
+      // Files search: 'f'
+      if (e.key === 'f') {
+        e.preventDefault();
+        setQuery('f ');
+        return;
+      }
+    }
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();

@@ -8,8 +8,8 @@ function EmptyState() {
         <p className="font-medium text-gray-500 text-xs">Quick Tips</p>
         <div className="space-y-0.5 text-xs">
           <p><span className="text-blue-400 font-mono">g query</span> - Google search</p>
-          <p><span className="text-blue-400 font-mono">cb</span> - Clipboard history</p>
-          <p><span className="text-blue-400 font-mono">&gt; command</span> - System commands</p>
+          <p><span className="text-blue-400 font-mono">n</span> - Notes • <span className="text-blue-400 font-mono">f</span> - Files</p>
+          <p><span className="text-blue-400 font-mono">cb</span> - Clipboard • <span className="text-blue-400 font-mono">s</span> - Scratchpad</p>
         </div>
       </div>
     </div>

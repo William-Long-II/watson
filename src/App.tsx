@@ -6,6 +6,8 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { SearchBar } from './components/SearchBar';
 import { ResultsList } from './components/ResultsList';
+import { Scratchpad } from './components/Scratchpad';
+import { NoteEditor } from './components/NoteEditor';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -146,7 +148,7 @@ function WebSearchEditor({
 }
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const { settings, saveSettings, reindexApps } = useAppStore();
+  const { settings, saveSettings, reindexApps, reindexFiles } = useAppStore();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [version, setVersion] = useState('');
@@ -295,6 +297,44 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* File Search */}
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <label className="text-sm text-gray-500">File Search</label>
+            <button
+              onClick={() => {
+                saveSettings({
+                  ...settings,
+                  file_search: { ...settings.file_search, enabled: !settings.file_search.enabled }
+                });
+              }}
+              className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                settings.file_search.enabled
+                  ? 'bg-green-500 text-white'
+                  : 'bg-gray-300 text-gray-600'
+              }`}
+            >
+              {settings.file_search.enabled ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+          {settings.file_search.enabled && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-400">
+                Indexed paths: {settings.file_search.indexed_paths.join(', ')}
+              </div>
+              <button
+                onClick={async () => {
+                  const count = await reindexFiles();
+                  console.log(`Indexed ${count} files`);
+                }}
+                className="px-3 py-1.5 rounded-lg text-sm bg-[var(--input-bg)] hover:bg-[var(--selected)] transition-colors"
+              >
+                Re-index Files
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* Actions */}
         <div>
           <label className="text-sm text-gray-500 mb-2 block">Actions</label>
@@ -354,7 +394,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
         {/* Help & About */}
         <div className="text-xs text-gray-400 pt-2 border-t border-[var(--border)]">
           <p>Hotkey: Alt+Space</p>
-          <p>Type <span className="text-blue-400 font-mono">cb</span> for clipboard history</p>
+          <p>Quick keys: <span className="text-blue-400 font-mono">n</span> new note • <span className="text-blue-400 font-mono">f</span> files • <span className="text-blue-400 font-mono">s</span> scratchpad</p>
           <p className="mt-2 text-gray-500">Watson v{version}</p>
         </div>
       </div>
@@ -363,7 +403,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
-  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow } = useAppStore();
+  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible } = useAppStore();
 
   useEffect(() => {
     loadSettings();
@@ -419,7 +459,11 @@ function App() {
 
       <SearchBar />
 
-      {showSettings ? (
+      {noteEditorVisible ? (
+        <NoteEditor />
+      ) : scratchpadVisible ? (
+        <Scratchpad />
+      ) : showSettings ? (
         <SettingsPanel onClose={() => setShowSettings(false)} />
       ) : (
         <ResultsList />

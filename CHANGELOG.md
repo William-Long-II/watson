@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
-## [1.2.7] - 2025-12-30
+### Added
+- **Notes** - Create, edit, and search markdown notes with `n` prefix (e.g., `n meeting`)
+- **Scratchpad** - Quick text capture area accessible via `s` or backtick key
+- **File Search** - Search indexed files with `f` prefix (e.g., `f config`)
+- **Chained Shortcuts** - Single-key shortcuts when search is empty:
+  - `n` - Create new note
+  - `N` (Shift+n) - Search notes
+  - `f` - Search files
+  - `s` or backtick - Open scratchpad
+- File search settings panel with configurable indexed paths and exclusion patterns
+- Note editor with auto-save, delete confirmation, and keyboard shortcuts (Cmd/Ctrl+S to save)
 
 ### Fixed
 - Enabled createUpdaterArtifacts in bundle config for signed updates

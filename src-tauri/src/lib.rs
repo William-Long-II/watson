@@ -2,12 +2,18 @@ mod actions;
 mod clipboard;
 mod config;
 mod db;
+mod files;
 mod indexers;
+mod notes;
+mod scratchpad;
 mod search;
 
 use actions::system::{execute_command, get_system_commands};
 use clipboard::ClipboardManager;
 use config::settings::Settings;
+use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
+use notes::NotesManager;
+use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
@@ -27,6 +33,9 @@ struct AppState {
     indexed_apps: RwLock<Vec<AppEntry>>,
     settings: RwLock<Settings>,
     clipboard: ClipboardManager,
+    scratchpad: ScratchpadManager,
+    notes: NotesManager,
+    file_search: Arc<FileSearchManager>,
 }
 
 #[tauri::command]
@@ -60,6 +69,100 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
     let apps = state.indexed_apps.read().unwrap();
 
     let mut items: Vec<SearchResult> = Vec::new();
+
+    // Check for notes search (n or notes keyword)
+    if query.starts_with("n ") || query.starts_with("notes ") {
+        let note_query = query
+            .strip_prefix("n ")
+            .or_else(|| query.strip_prefix("notes "))
+            .unwrap_or("");
+
+        if let Ok(notes) = if note_query.is_empty() {
+            state.notes.get_recent(8)
+        } else {
+            state.notes.search(note_query)
+        } {
+            for note in notes.into_iter().take(8) {
+                items.push(SearchResult {
+                    id: note.id.clone(),
+                    name: note.title,
+                    description: format!("Note · {}", note.tags.join(", ")),
+                    icon: Some("note".to_string()),
+                    result_type: ResultType::Note,
+                    score: 10000,
+                    action: SearchAction::OpenNote { note_id: note.id },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Show recent notes if just "n" or "notes"
+    if query == "n" || query == "notes" {
+        if let Ok(notes) = state.notes.get_recent(8) {
+            for note in notes {
+                items.push(SearchResult {
+                    id: note.id.clone(),
+                    name: note.title,
+                    description: format!("Note · {}", note.tags.join(", ")),
+                    icon: Some("note".to_string()),
+                    result_type: ResultType::Note,
+                    score: 10000,
+                    action: SearchAction::OpenNote { note_id: note.id },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Check for file search (f or files keyword)
+    if query.starts_with("f ") || query.starts_with("files ") {
+        let file_query = query
+            .strip_prefix("f ")
+            .or_else(|| query.strip_prefix("files "))
+            .unwrap_or("");
+
+        if let Ok(files) = if file_query.is_empty() {
+            state.file_search.get_recent(8)
+        } else {
+            state.file_search.search(file_query, 8)
+        } {
+            for file in files {
+                items.push(SearchResult {
+                    id: file.id.clone(),
+                    name: file.name,
+                    description: file.path.clone(),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    action: SearchAction::OpenFile { path: file.path },
+                });
+            }
+        }
+
+        return items;
+    }
+
+    // Show recent files if just "f" or "files"
+    if query == "f" || query == "files" {
+        if let Ok(files) = state.file_search.get_recent(8) {
+            for file in files {
+                items.push(SearchResult {
+                    id: file.id.clone(),
+                    name: file.name,
+                    description: file.path.clone(),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    action: SearchAction::OpenFile { path: file.path },
+                });
+            }
+        }
+
+        return items;
+    }
 
     // Check for clipboard search (cb or clip keyword)
     if query.starts_with("cb ") || query.starts_with("clip ") {
@@ -202,6 +305,13 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::OpenUrl { url } => actions::open_url(&url),
         SearchAction::RunCommand { command } => execute_command(&command),
         SearchAction::CopyClipboard { content } => state.clipboard.copy_to_clipboard(&content),
+        SearchAction::OpenNote { note_id: _ } => {
+            // Note opening is handled by the frontend
+            Ok(())
+        }
+        SearchAction::OpenFile { path } => {
+            open::that(&path).map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -242,9 +352,97 @@ fn copy_to_clipboard(content: String, state: State<AppState>) -> Result<(), Stri
     state.clipboard.copy_to_clipboard(&content)
 }
 
+#[tauri::command]
+fn get_scratchpad(state: State<AppState>) -> Result<scratchpad::Scratchpad, String> {
+    state.scratchpad.get()
+}
+
+#[tauri::command]
+fn set_scratchpad(content: String, state: State<AppState>) -> Result<(), String> {
+    state.scratchpad.set(&content)
+}
+
+#[tauri::command]
+fn clear_scratchpad(state: State<AppState>) -> Result<(), String> {
+    state.scratchpad.clear()
+}
+
+#[tauri::command]
+fn create_note(title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
+    state.notes.create(&title, &content)
+}
+
+#[tauri::command]
+fn update_note(id: String, title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
+    state.notes.update(&id, &title, &content)
+}
+
+#[tauri::command]
+fn delete_note(id: String, state: State<AppState>) -> Result<(), String> {
+    state.notes.delete(&id)
+}
+
+#[tauri::command]
+fn get_note(id: String, state: State<AppState>) -> Result<Option<notes::Note>, String> {
+    state.notes.get(&id)
+}
+
+#[tauri::command]
+fn search_notes(query: String, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.search(&query)
+}
+
+#[tauri::command]
+fn get_recent_notes(limit: usize, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.get_recent(limit)
+}
+
+#[tauri::command]
+fn search_files(query: String, limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.search(&query, limit)
+}
+
+#[tauri::command]
+fn search_files_by_extension(extension: String, limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.search_by_extension(&extension, limit)
+}
+
+#[tauri::command]
+fn get_recent_files(limit: usize, state: State<AppState>) -> Result<Vec<FileEntry>, String> {
+    state.file_search.get_recent(limit)
+}
+
+#[tauri::command]
+fn reindex_files(state: State<AppState>) -> usize {
+    let settings = state.settings.read().unwrap();
+    if !settings.file_search.enabled {
+        return 0;
+    }
+
+    let indexer = FileIndexer::new(
+        Arc::clone(&state.file_search),
+        settings.file_search.indexed_paths.clone(),
+        settings.file_search.excluded_patterns.clone(),
+        settings.file_search.max_depth,
+    );
+    indexer.index_all()
+}
+
+#[tauri::command]
+fn clear_file_index(state: State<AppState>) -> Result<(), String> {
+    state.file_search.clear_all()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let db = Database::new().expect("Failed to initialize database");
+    let db = Arc::new(Database::new().expect("Failed to initialize database"));
+    let scratchpad = ScratchpadManager::new(Arc::clone(&db));
+
+    // Initialize notes manager
+    let notes_path = directories::ProjectDirs::from("com", "watson", "Watson")
+        .map(|dirs| dirs.data_dir().join("notes"))
+        .unwrap_or_else(|| std::path::PathBuf::from("./notes"));
+    let notes = NotesManager::new(Arc::clone(&db), notes_path);
     let settings = config::load_settings();
     let indexer = get_indexer();
     let indexed_apps = indexer.index_apps();
@@ -253,17 +451,23 @@ pub fn run() {
     let clipboard = ClipboardManager::new(50); // Store last 50 entries
     clipboard.start_monitoring();
 
+    // Initialize file search manager
+    let file_search = Arc::new(FileSearchManager::new(Arc::clone(&db)));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(AppState {
-            db: Arc::new(db),
+            db: Arc::clone(&db),
             search_engine: SearchEngine::new(),
             indexed_apps: RwLock::new(indexed_apps),
             settings: RwLock::new(settings),
             clipboard,
+            scratchpad,
+            notes,
+            file_search,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -322,7 +526,21 @@ pub fn run() {
             get_clipboard_history,
             search_clipboard,
             clear_clipboard_history,
-            copy_to_clipboard
+            copy_to_clipboard,
+            get_scratchpad,
+            set_scratchpad,
+            clear_scratchpad,
+            create_note,
+            update_note,
+            delete_note,
+            get_note,
+            search_notes,
+            get_recent_notes,
+            search_files,
+            search_files_by_extension,
+            get_recent_files,
+            reindex_files,
+            clear_file_index
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
