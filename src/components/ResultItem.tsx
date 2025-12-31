@@ -54,6 +54,31 @@ function ClipboardIcon() {
   );
 }
 
+function NoteIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <line x1="10" y1="9" x2="8" y2="9" />
+      </svg>
+    </div>
+  );
+}
+
+function FileIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+      </svg>
+    </div>
+  );
+}
+
 function DefaultIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center">
@@ -76,6 +101,10 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <CommandIcon />;
       case 'clipboard':
         return <ClipboardIcon />;
+      case 'note':
+        return <NoteIcon />;
+      case 'file':
+        return <FileIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -91,6 +120,10 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Cmd';
       case 'clipboard':
         return 'Clip';
+      case 'note':
+        return 'Note';
+      case 'file':
+        return 'File';
       default:
         return '';
     }

@@ -111,12 +111,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   executeSelected: async () => {
-    const { results, selectedIndex, hideWindow } = get();
+    const { results, selectedIndex, hideWindow, openNote } = get();
     const selected = results[selectedIndex];
 
     if (!selected) return;
 
     try {
+      // Handle note actions specially - open in editor instead of invoking backend
+      if (selected.action.type === 'open_note') {
+        set({ query: '', results: [], selectedIndex: 0 });
+        await openNote(selected.action.note_id);
+        return;
+      }
+
       // Hide window first, then execute action
       set({ query: '', results: [], selectedIndex: 0 });
       await hideWindow();
