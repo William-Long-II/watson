@@ -3,13 +3,20 @@ import { useAppStore } from '../stores/app';
 
 export function SearchBar() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const { query, setQuery, moveSelection, executeSelected, hideWindow } = useAppStore();
+  const { query, setQuery, moveSelection, executeSelected, hideWindow, setShowScratchpad } = useAppStore();
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Scratchpad trigger: 's' or '`' when search is empty
+    if (query === '' && (e.key === 's' || e.key === '`')) {
+      e.preventDefault();
+      setShowScratchpad(true);
+      return;
+    }
+
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
