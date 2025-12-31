@@ -28,3 +28,5 @@ urlencoding = "2.1"
 open = "5.0"
 arboard = "3.4"
 chrono = { version = "0.4", features = ["serde"] }
+walkdir = "2.4"
+dirs = "5.0"
