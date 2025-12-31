@@ -3,11 +3,13 @@ mod clipboard;
 mod config;
 mod db;
 mod indexers;
+mod scratchpad;
 mod search;
 
 use actions::system::{execute_command, get_system_commands};
 use clipboard::ClipboardManager;
 use config::settings::Settings;
+use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
