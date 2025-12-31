@@ -3,6 +3,7 @@ mod clipboard;
 mod config;
 mod db;
 mod indexers;
+mod notes;
 mod scratchpad;
 mod search;
 
