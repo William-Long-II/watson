@@ -2,6 +2,7 @@ mod actions;
 mod clipboard;
 mod config;
 mod db;
+mod files;
 mod indexers;
 mod notes;
 mod scratchpad;
