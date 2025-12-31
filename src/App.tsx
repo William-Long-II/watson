@@ -6,6 +6,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { SearchBar } from './components/SearchBar';
 import { ResultsList } from './components/ResultsList';
+import { Scratchpad } from './components/Scratchpad';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -363,7 +364,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
-  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow } = useAppStore();
+  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible } = useAppStore();
 
   useEffect(() => {
     loadSettings();
@@ -419,7 +420,9 @@ function App() {
 
       <SearchBar />
 
-      {showSettings ? (
+      {scratchpadVisible ? (
+        <Scratchpad />
+      ) : showSettings ? (
         <SettingsPanel onClose={() => setShowSettings(false)} />
       ) : (
         <ResultsList />
