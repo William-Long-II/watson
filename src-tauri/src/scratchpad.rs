@@ -61,23 +61,46 @@ mod tests {
     use super::*;
     use crate::db::Database;
 
+    fn manager() -> ScratchpadManager {
+        let db = Arc::new(Database::in_memory().expect("in-memory db should open"));
+        ScratchpadManager::new(db)
+    }
+
     #[test]
-    fn test_scratchpad_get_set() {
-        let db = Database::new().unwrap();
-        let manager = ScratchpadManager::new(Arc::new(db));
-
-        // Initially empty
-        let pad = manager.get().unwrap();
+    fn new_initializes_empty_scratchpad_row() {
+        let manager = manager();
+        let pad = manager.get().expect("scratchpad row should exist after new()");
         assert_eq!(pad.content, "");
+    }
 
-        // Set content
-        manager.set("test content").unwrap();
-        let pad = manager.get().unwrap();
-        assert_eq!(pad.content, "test content");
+    #[test]
+    fn set_then_get_round_trips_content() {
+        let manager = manager();
+        manager.set("hello world").unwrap();
+        assert_eq!(manager.get().unwrap().content, "hello world");
+    }
 
-        // Clear
+    #[test]
+    fn clear_resets_content_to_empty_string() {
+        let manager = manager();
+        manager.set("anything").unwrap();
         manager.clear().unwrap();
-        let pad = manager.get().unwrap();
-        assert_eq!(pad.content, "");
+        assert_eq!(manager.get().unwrap().content, "");
+    }
+
+    #[test]
+    fn set_preserves_unicode_and_newlines() {
+        let manager = manager();
+        let content = "line1\nlíñé2 — 日本語 🧪\nline3";
+        manager.set(content).unwrap();
+        assert_eq!(manager.get().unwrap().content, content);
+    }
+
+    #[test]
+    fn set_handles_large_content() {
+        let manager = manager();
+        let content = "x".repeat(100_000);
+        manager.set(&content).unwrap();
+        assert_eq!(manager.get().unwrap().content.len(), 100_000);
     }
 }

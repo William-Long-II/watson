@@ -1,38 +1,19 @@
 #[cfg(test)]
 mod tests {
-    use crate::indexers::get_indexer;
-    use crate::db::AppEntry;
-    use crate::indexers::AppIndexer;
+    use crate::indexers::{get_indexer, AppIndexer};
 
+    /// Smoke-only: confirms the platform indexer runs without panicking on
+    /// the current machine. It does NOT verify that any specific app was
+    /// enumerated, because we have no fixture directory control yet.
+    ///
+    /// Fixture-backed coverage is tracked as TA-07 in
+    /// `docs/testing/test-design-progress.md`. Delete this test once TA-07
+    /// lands; until then it is intentionally `#[ignore]`d so `cargo test`
+    /// output does not imply coverage we do not actually have.
     #[test]
-    fn test_indexer_trait_exists() {
-        // Verify the indexer can be created
-        let _indexer = get_indexer();
-    }
-
-    #[test]
-    fn test_indexer_returns_apps() {
+    #[ignore = "smoke only — real indexer coverage tracked as TA-07"]
+    fn indexer_runs_without_panicking_on_host_machine() {
         let indexer = get_indexer();
-        let apps = indexer.index_apps();
-
-        // Should return some apps (may be empty in test environments)
-        // Just verify it doesn't panic
-        let _ = apps.len();
-    }
-
-    #[test]
-    fn test_app_entry_fields() {
-        let entry = AppEntry {
-            id: "test:app".to_string(),
-            name: "Test App".to_string(),
-            path: "/path/to/app".to_string(),
-            icon_cache_path: None,
-            launch_count: 0,
-            last_launched: None,
-            platform: "test".to_string(),
-        };
-
-        assert_eq!(entry.name, "Test App");
-        assert!(entry.id.starts_with("test:"));
+        let _apps = indexer.index_apps();
     }
 }
