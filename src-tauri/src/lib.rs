@@ -16,6 +16,7 @@ use notes::NotesManager;
 use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
+use search::dispatch::{classify_prefix_route, match_web_search, Route, SubQuery, WebSearchMatch};
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
 use std::sync::{Arc, RwLock};
 use tauri::{Manager, State};
@@ -59,10 +60,84 @@ fn reindex_apps(state: State<AppState>) -> usize {
     count
 }
 
+fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
+    let notes = match sub {
+        SubQuery::Listing => state.notes.get_recent(8),
+        SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8),
+        SubQuery::Search(q) => state.notes.search(&q),
+    };
+    notes
+        .map(|notes| {
+            notes
+                .into_iter()
+                .take(8)
+                .map(|note| SearchResult {
+                    id: note.id.clone(),
+                    name: note.title,
+                    description: format!("Note · {}", note.tags.join(", ")),
+                    icon: Some("note".to_string()),
+                    result_type: ResultType::Note,
+                    score: 10000,
+                    action: SearchAction::OpenNote { note_id: note.id },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
+    let files = match sub {
+        SubQuery::Listing => state.file_search.get_recent(8),
+        SubQuery::Search(ref q) if q.is_empty() => state.file_search.get_recent(8),
+        SubQuery::Search(q) => state.file_search.search(&q, 8),
+    };
+    files
+        .map(|files| {
+            files
+                .into_iter()
+                .map(|file| SearchResult {
+                    id: file.id.clone(),
+                    name: file.name,
+                    description: file.path.clone(),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    action: SearchAction::OpenFile { path: file.path },
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
+    let entries = match sub {
+        SubQuery::Listing => state.clipboard.get_history(),
+        SubQuery::Search(ref q) if q.is_empty() => state.clipboard.get_history(),
+        SubQuery::Search(q) => state.clipboard.search_history(&q),
+    };
+    entries
+        .into_iter()
+        .take(8)
+        .map(|entry| SearchResult {
+            id: entry.id,
+            name: entry.preview.clone(),
+            description: format!("Copied {}", entry.timestamp.format("%H:%M:%S")),
+            icon: Some("clipboard".to_string()),
+            result_type: ResultType::Clipboard,
+            score: 10000,
+            action: SearchAction::CopyClipboard { content: entry.content },
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
-    if query.is_empty() {
-        return vec![];
+    match classify_prefix_route(&query) {
+        Route::Empty => return vec![],
+        Route::Notes(sub) => return notes_route_results(&state, sub),
+        Route::Files(sub) => return files_route_results(&state, sub),
+        Route::Clipboard(sub) => return clipboard_route_results(&state, sub),
+        Route::Passthrough => {}
     }
 
     let settings = state.settings.read().unwrap();
@@ -70,177 +145,28 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
 
     let mut items: Vec<SearchResult> = Vec::new();
 
-    // Check for notes search (n or notes keyword)
-    if query.starts_with("n ") || query.starts_with("notes ") {
-        let note_query = query
-            .strip_prefix("n ")
-            .or_else(|| query.strip_prefix("notes "))
-            .unwrap_or("");
-
-        if let Ok(notes) = if note_query.is_empty() {
-            state.notes.get_recent(8)
+    // Web search keyword match (pure classification in search::dispatch).
+    if let WebSearchMatch::Matched { index, subquery } =
+        match_web_search(&query, &settings.web_searches)
+    {
+        let ws = &settings.web_searches[index];
+        let url = if ws.url.contains("{instance}") {
+            ws.url
+                .replace("{instance}", ws.instance.as_deref().unwrap_or(""))
+                .replace("{query}", &urlencoding::encode(&subquery))
         } else {
-            state.notes.search(note_query)
-        } {
-            for note in notes.into_iter().take(8) {
-                items.push(SearchResult {
-                    id: note.id.clone(),
-                    name: note.title,
-                    description: format!("Note · {}", note.tags.join(", ")),
-                    icon: Some("note".to_string()),
-                    result_type: ResultType::Note,
-                    score: 10000,
-                    action: SearchAction::OpenNote { note_id: note.id },
-                });
-            }
-        }
-
-        return items;
-    }
-
-    // Show recent notes if just "n" or "notes"
-    if query == "n" || query == "notes" {
-        if let Ok(notes) = state.notes.get_recent(8) {
-            for note in notes {
-                items.push(SearchResult {
-                    id: note.id.clone(),
-                    name: note.title,
-                    description: format!("Note · {}", note.tags.join(", ")),
-                    icon: Some("note".to_string()),
-                    result_type: ResultType::Note,
-                    score: 10000,
-                    action: SearchAction::OpenNote { note_id: note.id },
-                });
-            }
-        }
-
-        return items;
-    }
-
-    // Check for file search (f or files keyword)
-    if query.starts_with("f ") || query.starts_with("files ") {
-        let file_query = query
-            .strip_prefix("f ")
-            .or_else(|| query.strip_prefix("files "))
-            .unwrap_or("");
-
-        if let Ok(files) = if file_query.is_empty() {
-            state.file_search.get_recent(8)
-        } else {
-            state.file_search.search(file_query, 8)
-        } {
-            for file in files {
-                items.push(SearchResult {
-                    id: file.id.clone(),
-                    name: file.name,
-                    description: file.path.clone(),
-                    icon: Some("file".to_string()),
-                    result_type: ResultType::File,
-                    score: 10000,
-                    action: SearchAction::OpenFile { path: file.path },
-                });
-            }
-        }
-
-        return items;
-    }
-
-    // Show recent files if just "f" or "files"
-    if query == "f" || query == "files" {
-        if let Ok(files) = state.file_search.get_recent(8) {
-            for file in files {
-                items.push(SearchResult {
-                    id: file.id.clone(),
-                    name: file.name,
-                    description: file.path.clone(),
-                    icon: Some("file".to_string()),
-                    result_type: ResultType::File,
-                    score: 10000,
-                    action: SearchAction::OpenFile { path: file.path },
-                });
-            }
-        }
-
-        return items;
-    }
-
-    // Check for clipboard search (cb or clip keyword)
-    if query.starts_with("cb ") || query.starts_with("clip ") {
-        let clip_query = query
-            .strip_prefix("cb ")
-            .or_else(|| query.strip_prefix("clip "))
-            .unwrap_or("");
-
-        let clip_results = if clip_query.is_empty() {
-            state.clipboard.get_history()
-        } else {
-            state.clipboard.search_history(clip_query)
+            ws.url.replace("{query}", &urlencoding::encode(&subquery))
         };
 
-        for entry in clip_results.into_iter().take(8) {
-            items.push(SearchResult {
-                id: entry.id,
-                name: entry.preview.clone(),
-                description: format!("Copied {}", entry.timestamp.format("%H:%M:%S")),
-                icon: Some("clipboard".to_string()),
-                result_type: ResultType::Clipboard,
-                score: 10000,
-                action: SearchAction::CopyClipboard { content: entry.content },
-            });
-        }
-
-        return items;
-    }
-
-    // Show recent clipboard if just "cb" or "clip"
-    if query == "cb" || query == "clip" {
-        for entry in state.clipboard.get_history().into_iter().take(8) {
-            items.push(SearchResult {
-                id: entry.id,
-                name: entry.preview.clone(),
-                description: format!("Copied {}", entry.timestamp.format("%H:%M:%S")),
-                icon: Some("clipboard".to_string()),
-                result_type: ResultType::Clipboard,
-                score: 10000,
-                action: SearchAction::CopyClipboard { content: entry.content },
-            });
-        }
-
-        return items;
-    }
-
-    // Check for web search keyword match first
-    for ws in &settings.web_searches {
-        if query.starts_with(&format!("{} ", ws.keyword)) {
-            let search_query = query.strip_prefix(&format!("{} ", ws.keyword)).unwrap();
-            if !search_query.is_empty() {
-                // Check if URL needs instance but it's not configured
-                let needs_instance = ws.url.contains("{instance}");
-                let has_instance = ws.instance.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
-
-                if needs_instance && !has_instance {
-                    continue; // Skip if needs instance but not configured
-                }
-
-                let url = if needs_instance {
-                    ws.url
-                        .replace("{instance}", ws.instance.as_ref().unwrap())
-                        .replace("{query}", &urlencoding::encode(search_query))
-                } else {
-                    ws.url.replace("{query}", &urlencoding::encode(search_query))
-                };
-
-                items.push(SearchResult {
-                    id: format!("web:{}", ws.keyword),
-                    name: format!("{}: {}", ws.name, search_query),
-                    description: "Web Search".to_string(),
-                    icon: ws.icon.clone(),
-                    result_type: ResultType::WebSearch,
-                    score: 10000, // High score to appear first
-                    action: SearchAction::OpenUrl { url },
-                });
-            }
-        }
+        items.push(SearchResult {
+            id: format!("web:{}", ws.keyword),
+            name: format!("{}: {}", ws.name, subquery),
+            description: "Web Search".to_string(),
+            icon: ws.icon.clone(),
+            result_type: ResultType::WebSearch,
+            score: 10000,
+            action: SearchAction::OpenUrl { url },
+        });
     }
 
     // Check for system command prefix

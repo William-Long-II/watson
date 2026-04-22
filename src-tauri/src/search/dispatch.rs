@@ -2,8 +2,8 @@
 //!
 //! This module is pure logic — no state access, no IO, no Tauri types.
 //! Its purpose is to make the prefix-routing decision testable in isolation.
-//! The live dispatcher in `lib.rs::search` still encodes the same rules inline;
-//! migrating it to call into this module is a planned follow-up.
+//! `lib.rs::search` consumes this module — changes to routing rules go here
+//! and must be covered by the tests below.
 //!
 //! Routing rules (preserved from current `lib.rs::search` behavior):
 //!
