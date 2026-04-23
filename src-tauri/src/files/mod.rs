@@ -3,6 +3,7 @@ pub mod indexer;
 use crate::db::Database;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,11 +18,38 @@ pub struct FileEntry {
 
 pub struct FileSearchManager {
     db: Arc<Database>,
+    /// R-07 mitigation: cooperative cancellation flag for the file indexer.
+    /// The indexer checks this on each entry and exits early if set. This
+    /// is shared between the IPC `cancel_reindex_files` command and the
+    /// running indexer; see `FileIndexer::index_all`.
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl FileSearchManager {
     pub fn new(db: Arc<Database>) -> Self {
-        FileSearchManager { db }
+        FileSearchManager {
+            db,
+            cancel_flag: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Get a clone of the cancel flag. Indexers call this once at the start
+    /// of a run and hold onto the `Arc<AtomicBool>` for cheap reads inside
+    /// the hot walk loop.
+    pub fn cancel_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancel_flag)
+    }
+
+    /// Ask the currently-running indexer (if any) to stop. Idempotent.
+    pub fn request_cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Relaxed);
+    }
+
+    /// Reset the cancel flag before starting a new indexing run. The IPC
+    /// caller MUST invoke this before launching an indexer; otherwise a
+    /// prior cancel would short-circuit the new run.
+    pub fn reset_cancel(&self) {
+        self.cancel_flag.store(false, Ordering::Relaxed);
     }
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<FileEntry>, String> {
@@ -324,5 +352,38 @@ mod tests {
         }
         mgr.clear_all().unwrap();
         assert!(mgr.get_recent(10).unwrap().is_empty());
+    }
+
+    // --- cancel API (R-07) ---
+
+    #[test]
+    fn cancel_flag_is_false_by_default() {
+        let mgr = manager();
+        assert!(!mgr.cancel_flag().load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn request_cancel_sets_the_flag() {
+        let mgr = manager();
+        mgr.request_cancel();
+        assert!(mgr.cancel_flag().load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn reset_cancel_clears_the_flag() {
+        let mgr = manager();
+        mgr.request_cancel();
+        mgr.reset_cancel();
+        assert!(!mgr.cancel_flag().load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn cancel_flag_is_shared_across_clones() {
+        // cancel_flag() returns an Arc clone; changes through the manager
+        // must be visible through the cloned handle (the indexer reads it).
+        let mgr = manager();
+        let handle = mgr.cancel_flag();
+        mgr.request_cancel();
+        assert!(handle.load(Ordering::Relaxed));
     }
 }

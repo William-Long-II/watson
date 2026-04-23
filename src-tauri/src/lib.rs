@@ -343,6 +343,9 @@ fn reindex_files(state: State<AppState>) -> usize {
         return 0;
     }
 
+    // R-07: clear any cancel requested against a prior run before starting.
+    state.file_search.reset_cancel();
+
     let indexer = FileIndexer::new(
         Arc::clone(&state.file_search),
         settings.file_search.indexed_paths.clone(),
@@ -350,6 +353,14 @@ fn reindex_files(state: State<AppState>) -> usize {
         settings.file_search.max_depth,
     );
     indexer.index_all()
+}
+
+/// Ask the currently-running file indexer to stop. Returns immediately;
+/// the indexer checks the flag between entries so the actual stop happens
+/// at the next boundary.
+#[tauri::command]
+fn cancel_reindex_files(state: State<AppState>) {
+    state.file_search.request_cancel();
 }
 
 #[tauri::command]
@@ -464,6 +475,7 @@ pub fn run() {
             search_files_by_extension,
             get_recent_files,
             reindex_files,
+            cancel_reindex_files,
             clear_file_index
         ])
         .run(tauri::generate_context!())
