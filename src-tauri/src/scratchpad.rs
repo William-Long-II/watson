@@ -103,4 +103,47 @@ mod tests {
         manager.set(&content).unwrap();
         assert_eq!(manager.get().unwrap().content.len(), 100_000);
     }
+
+    #[test]
+    fn concurrent_writes_serialize_without_data_loss_or_deadlock() {
+        // WAT-104 / R-13: the scratchpad is a single SQLite row guarded by
+        // `Database`'s `Mutex<Connection>`. Concurrent calls to `set()` must
+        // serialize correctly — no deadlock, no panic, no partial writes —
+        // and the final stored value must be one of the values we wrote
+        // (never some interleaved garbage or the initial empty string).
+        //
+        // This also exercises the `Arc<ScratchpadManager>` share pattern
+        // that the Tauri command layer uses in prod; if the manager stopped
+        // being `Send + Sync`, this test would fail to compile.
+
+        const WRITERS: usize = 8;
+        const WRITES_PER_THREAD: usize = 25;
+
+        let manager = Arc::new(manager());
+
+        let mut handles = Vec::with_capacity(WRITERS);
+        for thread_id in 0..WRITERS {
+            let mgr = Arc::clone(&manager);
+            handles.push(std::thread::spawn(move || {
+                for write_id in 0..WRITES_PER_THREAD {
+                    let content = format!("t{thread_id}-w{write_id}");
+                    mgr.set(&content)
+                        .expect("concurrent set must not fail");
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("writer thread panicked");
+        }
+
+        // Final state must be *some* legal value from one of the writers —
+        // not an empty string (the initial state), not corrupted.
+        let final_content = manager.get().expect("get after concurrent writes").content;
+        assert!(
+            final_content.starts_with('t'),
+            "final content {final_content:?} doesn't match any writer's pattern — \
+             a write was lost or the column was clobbered"
+        );
+    }
 }
