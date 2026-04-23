@@ -36,6 +36,7 @@ interface AppState {
   openNote: (noteId: string) => Promise<void>;
   closeNoteEditor: () => void;
   openNewNote: () => void;
+  reloadNoteFromDisk: (id: string) => Promise<Note | null>;
   reindexFiles: () => Promise<number>;
   loadStartupWarnings: () => Promise<void>;
   dismissStartupWarning: (id: string) => Promise<void>;
@@ -276,6 +277,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       scratchpadVisible: false
     });
     get().resizeWindow();
+  },
+
+  reloadNoteFromDisk: async (id: string) => {
+    try {
+      const note = await invoke<Note>('reload_note_from_disk', { id });
+      // Update the in-editor state so the banner disappears and the
+      // editor's content reflects the disk version immediately.
+      set({ currentNote: note });
+      return note;
+    } catch (e) {
+      console.error('Failed to reload note from disk:', e);
+      return null;
+    }
   },
 
   reindexFiles: async () => {

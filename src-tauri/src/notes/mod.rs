@@ -14,7 +14,32 @@ pub struct Note {
     pub tags: Vec<String>,
     pub created_at: i64,
     pub modified_at: i64,
+    /// WAT-204: set only when `get()` detected that the on-disk .md file
+    /// was modified outside Watson (vim, Obsidian, etc.) since the DB
+    /// was last updated. Carries the disk content so the UI can show
+    /// the reconcile dialog without a second round-trip. `None` when
+    /// the note is in sync (the common case).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_changes: Option<ExternalChanges>,
 }
+
+/// Snapshot of a note's on-disk state when it has diverged from the DB.
+/// Populated only by `get()` on detection; callers use this to present a
+/// reconcile dialog without re-reading the file themselves.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalChanges {
+    pub disk_title: String,
+    pub disk_content: String,
+    pub disk_modified_at: i64,
+}
+
+/// Tolerance for clock/filesystem drift between `modified_at` (DB, set by
+/// Watson during `update`) and the file's mtime (set by the OS when Watson
+/// or an external editor writes the file). Watson's own write sets both
+/// within milliseconds, so anything beyond this threshold is treated as an
+/// external edit. 2 seconds covers typical FAT mtime granularity and
+/// reasonable NTP skew.
+const EXTERNAL_EDIT_DRIFT_TOLERANCE_SECS: i64 = 2;
 
 pub struct NotesManager {
     db: Arc<Database>,
@@ -61,6 +86,7 @@ impl NotesManager {
             tags: extracted_tags,
             created_at: now,
             modified_at: now,
+            external_changes: None,
         })
     }
 
@@ -112,6 +138,7 @@ impl NotesManager {
             tags: extracted_tags,
             created_at,
             modified_at: now,
+            external_changes: None,
         })
     }
 
@@ -143,6 +170,11 @@ impl NotesManager {
 
         if let Some((id, title, content, created_at, modified_at)) = notes.into_iter().next() {
             let note_tags = self.get_tags(&id)?;
+            // WAT-204: check whether the on-disk .md was modified
+            // outside Watson since our last DB update. This runs only on
+            // `get()` (typically the open-note flow) — stat-per-result
+            // during search is too expensive and doesn't help.
+            let external_changes = self.detect_external_changes(&id, modified_at);
             Ok(Some(Note {
                 id,
                 title,
@@ -150,10 +182,49 @@ impl NotesManager {
                 tags: note_tags,
                 created_at,
                 modified_at,
+                external_changes,
             }))
         } else {
             Ok(None)
         }
+    }
+
+    /// Returns `Some(ExternalChanges)` when the on-disk file is measurably
+    /// newer than the DB's `modified_at`. A missing file — unusual but
+    /// possible if the user deleted it manually — is treated as "in sync"
+    /// (the DB remains source of truth; next `update()` will recreate).
+    fn detect_external_changes(&self, id: &str, db_modified_at: i64) -> Option<ExternalChanges> {
+        let file_path = storage::find_note_file(&self.storage_path, id)?;
+        let disk_mtime = storage::file_modified_at(&file_path)?;
+        if disk_mtime <= db_modified_at + EXTERNAL_EDIT_DRIFT_TOLERANCE_SECS {
+            return None;
+        }
+        let (disk_title, disk_content) = storage::read_note_file(&file_path).ok()?;
+        Some(ExternalChanges {
+            disk_title,
+            disk_content,
+            disk_modified_at: disk_mtime,
+        })
+    }
+
+    /// WAT-204: adopt the on-disk version — read the file, parse, and
+    /// write the parsed title/content into the DB via `update()`. The
+    /// resulting `Note` has `external_changes: None` (caller is now in
+    /// sync).
+    pub fn reload_from_disk(&self, id: &str) -> Result<Note, String> {
+        let file_path = storage::find_note_file(&self.storage_path, id)
+            .ok_or_else(|| "note file not found on disk".to_string())?;
+        let (disk_title, disk_content) = storage::read_note_file(&file_path)?;
+        // If the external editor stripped the "# title" header, fall back
+        // to the DB's current title so the note keeps an identifier.
+        let effective_title = if disk_title.is_empty() {
+            self.get(id)?
+                .map(|n| n.title)
+                .unwrap_or_else(|| "Untitled".to_string())
+        } else {
+            disk_title
+        };
+        self.update(id, &effective_title, &disk_content)
     }
 
     pub fn search(&self, query: &str) -> Result<Vec<Note>, String> {
@@ -187,6 +258,7 @@ impl NotesManager {
                 tags: note_tags,
                 created_at,
                 modified_at,
+                external_changes: None,
             });
         }
         Ok(notes)
@@ -221,6 +293,7 @@ impl NotesManager {
                 tags: note_tags,
                 created_at,
                 modified_at,
+                external_changes: None,
             });
         }
         Ok(notes)
@@ -573,5 +646,125 @@ mod tests {
     fn get_recent_returns_empty_on_empty_db() {
         let (mgr, _dir) = manager();
         assert!(mgr.get_recent(10).unwrap().is_empty());
+    }
+
+    // --- WAT-204: external-edit detection on get() ---
+
+    #[test]
+    fn get_without_external_edit_has_no_external_changes() {
+        // Normal flow: create, get — mtime and modified_at align within
+        // drift tolerance. external_changes must be None.
+        let (mgr, _dir) = manager();
+        let note = mgr.create("T", "body").unwrap();
+        let fetched = mgr.get(&note.id).unwrap().unwrap();
+        assert!(
+            fetched.external_changes.is_none(),
+            "fresh note should have no external_changes; got: {:?}",
+            fetched.external_changes
+        );
+    }
+
+    #[test]
+    fn get_detects_external_edit_when_disk_mtime_exceeds_drift_tolerance() {
+        // Simulate: a note whose DB `modified_at` is well in the past,
+        // but whose on-disk file was just written (mtime ≈ now). The
+        // time gap exceeds drift tolerance, so `get()` must report
+        // external_changes with the disk content.
+        let (mgr, dir) = manager();
+        let note = mgr.create("T", "original body").unwrap();
+
+        // Rewrite the file with new content.
+        let file_path = storage::find_note_file(dir.path(), &note.id).unwrap();
+        std::fs::write(&file_path, "# T\n\nexternally edited").unwrap();
+
+        // Force the DB modified_at far into the past so the file's mtime
+        // (which is approximately now) is well beyond drift tolerance.
+        // Direct SQL is the minimum-surface way to test this.
+        use std::sync::Arc;
+        use crate::db::Database;
+        let db: Arc<Database> = Arc::clone(&mgr.db);
+        db.execute(
+            "UPDATE notes SET modified_at = ? WHERE id = ?",
+            &[&100_i64, &note.id],
+        )
+        .unwrap();
+
+        let fetched = mgr.get(&note.id).unwrap().unwrap();
+        let ext = fetched
+            .external_changes
+            .expect("expected external_changes when file mtime far exceeds DB modified_at");
+        assert_eq!(ext.disk_title, "T");
+        assert_eq!(ext.disk_content, "externally edited");
+        assert!(ext.disk_modified_at > 100);
+    }
+
+    #[test]
+    fn detect_external_changes_missing_file_is_in_sync() {
+        // If someone deleted the .md file manually, `get()` must not
+        // panic or report a bogus external change; DB remains source of
+        // truth. The next update() will recreate the file.
+        let (mgr, dir) = manager();
+        let note = mgr.create("T", "body").unwrap();
+        let file_path = storage::find_note_file(dir.path(), &note.id).unwrap();
+        std::fs::remove_file(file_path).unwrap();
+
+        let fetched = mgr.get(&note.id).unwrap().unwrap();
+        assert!(
+            fetched.external_changes.is_none(),
+            "missing file should be treated as in-sync, not as an external edit"
+        );
+    }
+
+    #[test]
+    fn reload_from_disk_copies_disk_content_into_db() {
+        // End-to-end: user externally edited, then chose "Use disk"
+        // in the reconcile dialog. reload_from_disk must parse the file
+        // and write its content back to the DB, leaving Watson in sync.
+        let (mgr, dir) = manager();
+        let note = mgr.create("Old Title", "old body").unwrap();
+
+        // External edit: rewrite file with new content + new title.
+        let file_path = storage::find_note_file(dir.path(), &note.id).unwrap();
+        std::fs::write(&file_path, "# New Title\n\nnew body").unwrap();
+        advance_ms_clock();
+
+        let reloaded = mgr.reload_from_disk(&note.id).unwrap();
+        assert_eq!(reloaded.title, "New Title");
+        assert_eq!(reloaded.content, "new body");
+        assert!(
+            reloaded.external_changes.is_none(),
+            "after reload, the DB should match disk — external_changes must clear"
+        );
+
+        // Fetch again to confirm persistence.
+        let fetched = mgr.get(&note.id).unwrap().unwrap();
+        assert_eq!(fetched.title, "New Title");
+        assert_eq!(fetched.content, "new body");
+    }
+
+    #[test]
+    fn reload_from_disk_falls_back_to_db_title_when_file_has_no_header() {
+        // If an external editor stripped the "# title" line, the file
+        // parse returns an empty title. Rather than blanking the note's
+        // title in the DB, keep the current DB title.
+        let (mgr, dir) = manager();
+        let note = mgr.create("Kept Title", "old body").unwrap();
+
+        let file_path = storage::find_note_file(dir.path(), &note.id).unwrap();
+        std::fs::write(&file_path, "no header, just body lines").unwrap();
+        advance_ms_clock();
+
+        let reloaded = mgr.reload_from_disk(&note.id).unwrap();
+        assert_eq!(reloaded.title, "Kept Title");
+        assert_eq!(reloaded.content, "no header, just body lines");
+    }
+
+    #[test]
+    fn reload_from_disk_errors_when_file_missing() {
+        let (mgr, dir) = manager();
+        let note = mgr.create("T", "body").unwrap();
+        let file_path = storage::find_note_file(dir.path(), &note.id).unwrap();
+        std::fs::remove_file(file_path).unwrap();
+        assert!(mgr.reload_from_disk(&note.id).is_err());
     }
 }

@@ -81,6 +81,18 @@ export interface Note {
   tags: string[];
   created_at: number;
   modified_at: number;
+  /**
+   * WAT-204: present only when `get_note` detected that the on-disk .md
+   * file was modified outside Watson since the DB was last updated.
+   * The editor renders a reconcile banner offering "Use disk" / "Keep DB".
+   */
+  external_changes?: ExternalChanges;
+}
+
+export interface ExternalChanges {
+  disk_title: string;
+  disk_content: string;
+  disk_modified_at: number;
 }
 
 export interface FileEntry {
