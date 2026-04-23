@@ -36,6 +36,11 @@ pub fn migrations() -> Migrations<'static> {
         // a path-keyed side table so reindex doesn't clobber open
         // history and we don't have to persist every file row's stats.
         M::up(SCHEMA_V003),
+        // 004 — WAT-303 persistent clipboard pins. Regular clipboard
+        // history stays in-memory (ephemeral per app run); only
+        // pinned entries get the cost of a DB row. Clear-history
+        // preserves pins in memory and on disk.
+        M::up(SCHEMA_V004),
     ])
 }
 
@@ -126,6 +131,16 @@ CREATE TABLE IF NOT EXISTS file_opens (
 CREATE INDEX IF NOT EXISTS idx_file_opens_last_opened ON file_opens(last_opened_at);
 "#;
 
+const SCHEMA_V004: &str = r#"
+CREATE TABLE IF NOT EXISTS clipboard_pins (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    pinned_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_clipboard_pins_pinned_at ON clipboard_pins(pinned_at);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,7 +164,7 @@ mod tests {
             .unwrap();
         // Bump this expectation whenever a new migration is appended
         // to `migrations()`.
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -161,7 +176,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -183,7 +198,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 3);
+        assert_eq!(post, 4);
     }
 
     #[test]
@@ -200,6 +215,7 @@ mod tests {
             "scratchpad",
             "app_launches",
             "file_opens",
+            "clipboard_pins",
         ] {
             let exists: i64 = conn
                 .query_row(

@@ -5,6 +5,8 @@ export interface SearchResult {
   icon: string | null;
   result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation';
   score: number;
+  /** WAT-303: populated only for clipboard results; true when pinned. */
+  pinned?: boolean;
   action: SearchAction;
 }
 
@@ -23,6 +25,12 @@ export interface Settings {
   theme: ThemeSettings;
   web_searches: WebSearch[];
   file_search: FileSearchSettings;
+  clipboard: ClipboardSettings;
+}
+
+export interface ClipboardSettings {
+  /** WAT-303: regex patterns; clipboard entries matching any are filtered before being recorded. */
+  ignore_patterns: string[];
 }
 
 export interface GeneralSettings {
@@ -111,7 +119,10 @@ export interface FileSearchSettings {
   max_depth: number;
 }
 
-export type StartupWarningKind = 'shortcut_unavailable' | 'settings_from_newer_version';
+export type StartupWarningKind =
+  | 'shortcut_unavailable'
+  | 'settings_from_newer_version'
+  | 'invalid_clipboard_filter';
 
 export interface StartupWarning {
   id: string;

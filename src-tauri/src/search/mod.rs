@@ -21,7 +21,17 @@ pub struct SearchResult {
     /// need no changes.
     #[serde(default, skip_serializing_if = "is_zero_f64")]
     pub usage_bonus: f64,
+    /// WAT-303: populated only for clipboard results — indicates the
+    /// entry is pinned (survives clear-history; sorts above unpinned).
+    /// Default false, skip-serialize-if-false so non-clipboard results
+    /// don't bloat the IPC payload.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
     pub action: SearchAction,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 fn is_zero_f64(v: &f64) -> bool {
