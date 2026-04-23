@@ -10,24 +10,48 @@ pub fn write_note_file(
     let filename = format!("{}-{}.md", id.replace("note:", ""), safe_title);
     let path = storage_path.join(&filename);
 
+    // R-05 mitigation: if a prior version of this note was written with a
+    // different title, its .md file remains under the old filename. Before
+    // writing the new file, clear any stale variants so the invariant
+    // "exactly one .md file per note id" holds.
+    cleanup_stale_files_for_id(storage_path, id, &filename);
+
     let file_content = format!("# {}\n\n{}", title, content);
     std::fs::write(&path, file_content).map_err(|e| e.to_string())
 }
 
 pub fn delete_note_file(storage_path: &Path, id: &str) -> Result<(), String> {
-    // Find and delete the file matching this id
+    // Delete ALL files matching this id's prefix. The invariant is one file
+    // per id, but any stale orphan gets cleaned up here defensively.
     if let Ok(entries) = std::fs::read_dir(storage_path) {
         let prefix = id.replace("note:", "");
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if name.starts_with(&prefix) {
                     std::fs::remove_file(entry.path()).ok();
-                    return Ok(());
                 }
             }
         }
     }
     Ok(())
+}
+
+/// Remove any .md files for this note id EXCEPT the one we're about to write.
+/// Called just before `std::fs::write` creates the new file, so the file we
+/// keep may not yet exist on disk; we use filename comparison only.
+fn cleanup_stale_files_for_id(storage_path: &Path, id: &str, keep_filename: &str) {
+    let Ok(entries) = std::fs::read_dir(storage_path) else {
+        return;
+    };
+    let prefix = id.replace("note:", "");
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if name.starts_with(&prefix) && name != keep_filename {
+            std::fs::remove_file(entry.path()).ok();
+        }
+    }
 }
 
 fn sanitize_filename(name: &str) -> String {

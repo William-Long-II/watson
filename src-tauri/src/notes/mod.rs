@@ -393,19 +393,63 @@ mod tests {
         let note = mgr.create("OldTitle", "body").unwrap();
         advance_ms_clock();
         mgr.update(&note.id, "NewTitle", "body").unwrap();
-        // A file with the new-title filename must exist.
+
+        // Invariant (R-05 partial mitigation): exactly one .md file per
+        // note id on disk. The file carries the new title; the old-title
+        // file has been cleaned up by write_note_file::cleanup_stale_files_for_id.
         let prefix = note.id.replace("note:", "");
-        let new_file = std::fs::read_dir(dir.path())
+        let files: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .flatten()
-            .find(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                name.starts_with(&prefix) && name.contains("NewTitle")
-            });
-        assert!(
-            new_file.is_some(),
-            "expected a file matching the new title; R-05 (R-XX follow-up): the old-title file is NOT cleaned up, leaving an orphaned .md on disk"
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .collect();
+        assert_eq!(
+            files.len(),
+            1,
+            "expected exactly one file after rename; got {files:?}"
         );
+        let name = files[0].file_name().to_string_lossy().to_string();
+        assert!(name.contains("NewTitle"), "filename should reflect new title: {name}");
+        assert!(!name.contains("OldTitle"), "old-title file should be gone: {name}");
+    }
+
+    #[test]
+    fn repeated_title_changes_keep_only_one_file_on_disk() {
+        // Defensive: even after several renames, exactly one file survives.
+        let (mgr, dir) = manager();
+        let note = mgr.create("First", "body").unwrap();
+        for title in ["Second", "Third", "Fourth"] {
+            advance_ms_clock();
+            mgr.update(&note.id, title, "body").unwrap();
+        }
+        let prefix = note.id.replace("note:", "");
+        let count = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .count();
+        assert_eq!(count, 1, "expected exactly one file after 3 renames");
+    }
+
+    #[test]
+    fn delete_removes_all_stale_files_for_id() {
+        // Document the delete_note_file contract: it cleans up ALL files
+        // matching the id prefix, not just the first.
+        let (mgr, dir) = manager();
+        let note = mgr.create("t", "b").unwrap();
+        // Manually plant a stale file to simulate a pre-fix-era orphan.
+        let prefix = note.id.replace("note:", "");
+        let stale = dir.path().join(format!("{prefix}-stale.md"));
+        std::fs::write(&stale, "leftover").unwrap();
+
+        mgr.delete(&note.id).unwrap();
+
+        let remaining = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+            .count();
+        assert_eq!(remaining, 0, "delete should clean all files matching the id");
     }
 
     // --- delete ---
