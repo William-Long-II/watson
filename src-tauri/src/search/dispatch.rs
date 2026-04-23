@@ -33,6 +33,9 @@ pub enum Route {
     Notes(SubQuery),
     Files(SubQuery),
     Clipboard(SubQuery),
+    /// WAT-306: `>` alone lists all system commands; `>foo` filters them.
+    /// Exclusive route — apps and web searches are not mixed in.
+    SystemCommands(SubQuery),
     /// Not a reserved-prefix route. Caller should check web-search match next,
     /// then fall through to general fuzzy-match over apps / commands / web.
     Passthrough,
@@ -53,6 +56,23 @@ pub enum SubQuery {
 pub fn classify_prefix_route(query: &str) -> Route {
     if query.is_empty() {
         return Route::Empty;
+    }
+
+    // WAT-306: `>` is a single-char reserved prefix. Handle it before the
+    // word-style prefixes so `>` alone (Listing) and `>foo` / `> foo`
+    // (Search) all route to the system-command palette.
+    if query == ">" {
+        return Route::SystemCommands(SubQuery::Listing);
+    }
+    if let Some(rest) = query.strip_prefix('>') {
+        // Both `> foo` and `>foo` are valid entry forms; leading/trailing
+        // spaces in the subquery are trimmed so spelling doesn't matter.
+        let sub = rest.trim().to_string();
+        if sub.is_empty() {
+            // `> ` (with whitespace only) is treated as listing mode.
+            return Route::SystemCommands(SubQuery::Listing);
+        }
+        return Route::SystemCommands(SubQuery::Search(sub));
     }
 
     // Bare prefix alone: listing mode.
@@ -272,13 +292,52 @@ mod tests {
         assert_eq!(classify_prefix_route(" n meeting"), Route::Passthrough);
     }
 
+    // --- WAT-306: `>` is now a proper reserved route ---
+
     #[test]
-    fn gt_prefix_is_passthrough_not_a_reserved_route() {
-        // The ">" command prefix is handled downstream as an *additive* route,
-        // not a reserved route. classify_prefix_route intentionally does not
-        // claim it.
-        assert_eq!(classify_prefix_route("> lock"), Route::Passthrough);
-        assert_eq!(classify_prefix_route(">lock"), Route::Passthrough);
+    fn bare_gt_is_system_commands_listing() {
+        // Typing `>` alone must surface every system command — the whole
+        // point of WAT-306 is the discoverability gap for users who
+        // don't remember subcommand names.
+        assert_eq!(
+            classify_prefix_route(">"),
+            Route::SystemCommands(SubQuery::Listing)
+        );
+    }
+
+    #[test]
+    fn gt_with_trailing_space_is_system_commands_listing() {
+        // `> ` (space only) matches the notes/files convention — trailing
+        // whitespace without a real subquery is listing mode.
+        assert_eq!(
+            classify_prefix_route("> "),
+            Route::SystemCommands(SubQuery::Listing)
+        );
+    }
+
+    #[test]
+    fn gt_with_subquery_is_system_commands_search_both_forms() {
+        // Both `>lock` and `> lock` route to Search("lock") — space
+        // after `>` is optional. Trim preserves the subquery.
+        assert_eq!(
+            classify_prefix_route("> lock"),
+            Route::SystemCommands(SubQuery::Search("lock".into()))
+        );
+        assert_eq!(
+            classify_prefix_route(">lock"),
+            Route::SystemCommands(SubQuery::Search("lock".into()))
+        );
+    }
+
+    #[test]
+    fn gt_trims_inner_whitespace_around_subquery() {
+        // Defensive: user fumble-types `>   sleep  ` — the inner
+        // subquery is the trimmed term so downstream matching doesn't
+        // break on whitespace.
+        assert_eq!(
+            classify_prefix_route(">   sleep  "),
+            Route::SystemCommands(SubQuery::Search("sleep".into()))
+        );
     }
 
     #[test]

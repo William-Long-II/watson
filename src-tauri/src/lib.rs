@@ -151,6 +151,40 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
     }
 }
 
+/// WAT-306: dispatch for the `>` prefix. `>` alone returns every command
+/// in its registered order; `>foo` (or `> foo`) filters aliases by
+/// case-insensitive substring match. Runs exclusively — no apps, web
+/// searches, or other result types mix in.
+fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
+    let filter = match sub {
+        SubQuery::Listing => None,
+        SubQuery::Search(q) if q.is_empty() => None,
+        SubQuery::Search(q) => Some(q.to_lowercase()),
+    };
+
+    get_system_commands()
+        .into_iter()
+        .filter(|cmd| match &filter {
+            None => true,
+            Some(needle) => cmd
+                .aliases
+                .iter()
+                .any(|alias| alias.to_lowercase().contains(needle))
+                || cmd.name.to_lowercase().contains(needle.as_str()),
+        })
+        .map(|cmd| SearchResult {
+            id: cmd.id.clone(),
+            name: cmd.name.clone(),
+            description: cmd.description.clone(),
+            icon: Some("system".to_string()),
+            result_type: ResultType::SystemCommand,
+            score: 5000,
+            usage_bonus: 0.0,
+            action: SearchAction::RunCommand { command: cmd.id },
+        })
+        .collect()
+}
+
 fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
     let entries = match sub {
         SubQuery::Listing => state.clipboard.get_history(),
@@ -188,6 +222,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
         Route::Notes(sub) => return notes_route_results(&state, sub),
         Route::Files(sub) => return files_route_results(&state, sub),
         Route::Clipboard(sub) => return clipboard_route_results(&state, sub),
+        Route::SystemCommands(sub) => return system_commands_route_results(sub),
         Route::Passthrough => {}
     }
 
@@ -218,36 +253,13 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
         }
     }
 
-    // Check for system command prefix
-    let is_command_query = query.starts_with('>');
-    let command_query = if is_command_query {
-        query.strip_prefix('>').unwrap_or(&query).trim()
-    } else {
-        &query
-    };
+    // WAT-306: `>`-prefixed queries are handled exclusively by
+    // `system_commands_route_results` above. The Passthrough branch runs
+    // fuzzy match over apps + web searches only, so `sleep` (no prefix)
+    // still surfaces a matching app but never a SystemCommand result.
 
-    // Add system commands
-    for cmd in get_system_commands() {
-        let matches = cmd.aliases.iter().any(|alias| {
-            alias.to_lowercase().contains(&command_query.to_lowercase())
-        });
-
-        if matches || is_command_query {
-            items.push(SearchResult {
-                id: cmd.id.clone(),
-                name: cmd.name.clone(),
-                description: cmd.description.clone(),
-                icon: Some("system".to_string()),
-                result_type: ResultType::SystemCommand,
-                score: if is_command_query { 5000 } else { 0 },
-                usage_bonus: 0.0,
-                action: SearchAction::RunCommand { command: cmd.id },
-            });
-        }
-    }
-
-    // Add apps (skip if web search or command prefix)
-    if !query.contains(' ') || (!is_command_query && items.is_empty()) {
+    // Add apps
+    if !query.contains(' ') || items.is_empty() {
         // WAT-201: compute the usage bonus once for the whole loop; `now`
         // is shared across items so relative ordering is consistent even
         // if the loop takes a few ms at the edge of a second.
@@ -275,12 +287,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
     }
 
     // Search and limit results
-    let mut results = if is_command_query {
-        state.search_engine.search(command_query, items)
-    } else {
-        state.search_engine.search(&query, items)
-    };
-
+    let mut results = state.search_engine.search(&query, items);
     results.truncate(settings.search.max_results);
     results
 }
