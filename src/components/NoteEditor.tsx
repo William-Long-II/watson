@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
+import { renderMarkdown } from '../lib/markdown';
 
 export function NoteEditor() {
   const { currentNote, createNote, updateNote, deleteNote, closeNoteEditor, reloadNoteFromDisk } =
@@ -8,6 +9,10 @@ export function NoteEditor() {
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
+  // WAT-305: toggled via Cmd/Ctrl+P or the header button. Local state
+  // because preview mode is a viewing preference, not a persisted one —
+  // reopening a note always starts in edit mode.
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
@@ -15,10 +20,12 @@ export function NoteEditor() {
     if (currentNote) {
       setTitle(currentNote.title);
       setContent(currentNote.content);
+      setIsPreviewing(false);
       contentRef.current?.focus();
     } else {
       setTitle('');
       setContent('');
+      setIsPreviewing(false);
       titleRef.current?.focus();
     }
   }, [currentNote]);
@@ -75,6 +82,10 @@ export function NoteEditor() {
     } else if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSave();
+    } else if (e.key === 'p' && (e.metaKey || e.ctrlKey)) {
+      // WAT-305: Cmd/Ctrl+P toggles markdown preview.
+      e.preventDefault();
+      setIsPreviewing((p) => !p);
     }
   };
 
@@ -86,6 +97,19 @@ export function NoteEditor() {
           {currentNote ? 'Edit Note' : 'New Note'}
         </h3>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setIsPreviewing((p) => !p)}
+            aria-pressed={isPreviewing}
+            title="Toggle markdown preview (Cmd/Ctrl+P)"
+            className={`px-2 py-1 text-xs rounded transition-colors ${
+              isPreviewing
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-500 hover:bg-[var(--selected)]'
+            }`}
+          >
+            {isPreviewing ? 'Edit' : 'Preview'}
+          </button>
           {currentNote && (
             <button
               onClick={handleDelete}
@@ -147,13 +171,27 @@ export function NoteEditor() {
         className="w-full px-3 py-2 mb-3 text-sm font-medium bg-[var(--input-bg)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-blue-500"
       />
 
-      <textarea
-        ref={contentRef}
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        placeholder="Write your note... Use #tags to organize"
-        className="w-full h-48 p-3 text-sm bg-[var(--input-bg)] border border-[var(--border)] rounded-lg resize-none outline-none focus:ring-1 focus:ring-blue-500"
-      />
+      {isPreviewing ? (
+        <div
+          role="article"
+          aria-label="Markdown preview"
+          className="w-full h-48 p-3 text-sm bg-[var(--input-bg)] border border-[var(--border)] rounded-lg overflow-y-auto"
+        >
+          {content.trim() === '' ? (
+            <p className="text-gray-400 italic">Nothing to preview yet.</p>
+          ) : (
+            renderMarkdown(content)
+          )}
+        </div>
+      ) : (
+        <textarea
+          ref={contentRef}
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Write your note... Use #tags to organize"
+          className="w-full h-48 p-3 text-sm bg-[var(--input-bg)] border border-[var(--border)] rounded-lg resize-none outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      )}
 
       <div className="flex justify-between items-center mt-3">
         <p className="text-xs text-gray-400">
