@@ -67,11 +67,149 @@ pub fn get_system_commands() -> Vec<SystemCommand> {
             description: "Unmute system audio".to_string(),
             requires_confirmation: false,
         },
+        // WAT-302: window management. Aliases biased toward what a user
+        // would type under `>` — "split", "left", "max", "center".
+        SystemCommand {
+            id: "cmd:win-left".to_string(),
+            name: "Snap Window Left".to_string(),
+            aliases: vec![
+                "split-left".to_string(),
+                "split left".to_string(),
+                "snap-left".to_string(),
+                "left".to_string(),
+                "win-left".to_string(),
+            ],
+            description: "Snap the active window to the left half of its monitor".to_string(),
+            requires_confirmation: false,
+        },
+        SystemCommand {
+            id: "cmd:win-right".to_string(),
+            name: "Snap Window Right".to_string(),
+            aliases: vec![
+                "split-right".to_string(),
+                "split right".to_string(),
+                "snap-right".to_string(),
+                "right".to_string(),
+                "win-right".to_string(),
+            ],
+            description: "Snap the active window to the right half of its monitor".to_string(),
+            requires_confirmation: false,
+        },
+        SystemCommand {
+            id: "cmd:win-max".to_string(),
+            name: "Maximize Window".to_string(),
+            aliases: vec![
+                "max".to_string(),
+                "maximize".to_string(),
+                "win-max".to_string(),
+            ],
+            description: "Maximize the active window on its current monitor".to_string(),
+            requires_confirmation: false,
+        },
+        SystemCommand {
+            id: "cmd:win-center".to_string(),
+            name: "Center Window".to_string(),
+            aliases: vec![
+                "center".to_string(),
+                "centre".to_string(),
+                "win-center".to_string(),
+            ],
+            description: "Center the active window on its current monitor".to_string(),
+            requires_confirmation: false,
+        },
     ]
 }
 
+// WAT-302: window-management commands. Separate entry point so the
+// per-platform `execute_command` switches can delegate without
+// repeating the command-id match. Returns `Ok(true)` when the id was
+// handled (even if the action itself failed on an unsupported
+// platform), `Ok(false)` when the id wasn't a WAT-302 command so the
+// caller should try its other branches.
+#[cfg(target_os = "windows")]
+fn try_handle_window_command(command_id: &str) -> Result<bool, String> {
+    use super::window::WindowAction;
+    let Some(action) = WindowAction::from_command_id(command_id) else {
+        return Ok(false);
+    };
+    // Windows' native Win+arrow snap keys handle left/right/max
+    // perfectly, including across multiple monitors and respecting the
+    // taskbar. SendKeys is a lighter touch than SetWindowPos via
+    // P/Invoke. `{LWIN down}…{LWIN up}` is the documented pattern;
+    // one-shot key chords (`^{LEFT}`) wouldn't hit the Win modifier.
+    let script = match action {
+        WindowAction::SplitLeft => {
+            r#"(New-Object -ComObject WScript.Shell).SendKeys('{LWIN down}{LEFT}{LWIN up}')"#
+        }
+        WindowAction::SplitRight => {
+            r#"(New-Object -ComObject WScript.Shell).SendKeys('{LWIN down}{RIGHT}{LWIN up}')"#
+        }
+        WindowAction::Maximize => {
+            r#"(New-Object -ComObject WScript.Shell).SendKeys('{LWIN down}{UP}{LWIN up}')"#
+        }
+        // Center: no native key chord, so call the Win32 API directly
+        // through a PowerShell Add-Type shim. We pick an 80% × 80%
+        // window size centered on the work area for consistency with
+        // typical "reset layout" bindings in other launchers.
+        WindowAction::Center => WINDOW_CENTER_PS_SCRIPT,
+    };
+    Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn try_handle_window_command(command_id: &str) -> Result<bool, String> {
+    use super::window::WindowAction;
+    if WindowAction::from_command_id(command_id).is_none() {
+        return Ok(false);
+    }
+    // Handled-but-unsupported. Return Ok(true) so the caller doesn't
+    // also try to dispatch as a legacy command, but the inner Err
+    // surfaces the platform gap to the UI.
+    Err(format!(
+        "Window management is not yet implemented on this platform (command: {command_id}). \
+         Follow-up tickets will add macOS (accessibility API) and Linux (wmctrl) support."
+    ))
+}
+
+#[cfg(target_os = "windows")]
+const WINDOW_CENTER_PS_SCRIPT: &str = r#"
+Add-Type -Name WinApi -Namespace Watson -MemberDefinition @"
+[DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+[DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+[DllImport("user32.dll")] public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+[DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO mi);
+[StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+[StructLayout(LayoutKind.Sequential)] public struct MONITORINFO { public int cbSize; public RECT rcMonitor; public RECT rcWork; public uint dwFlags; }
+"@
+$hwnd = [Watson.WinApi]::GetForegroundWindow()
+$mon  = [Watson.WinApi]::MonitorFromWindow($hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+$mi   = New-Object Watson.WinApi+MONITORINFO
+$mi.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($mi)
+[void][Watson.WinApi]::GetMonitorInfo($mon, [ref]$mi)
+$work = $mi.rcWork
+$mw = $work.Right - $work.Left
+$mh = $work.Bottom - $work.Top
+# 80% × 80% window size is the Watson convention for `center` — a
+# visually obvious "reset" from any prior snap/max state.
+$ww = [int]($mw * 0.8)
+$wh = [int]($mh * 0.8)
+$x  = $work.Left + [int](($mw - $ww) / 2)
+$y  = $work.Top  + [int](($mh - $wh) / 2)
+[void][Watson.WinApi]::MoveWindow($hwnd, $x, $y, $ww, $wh, $true)
+"#;
+
 #[cfg(target_os = "macos")]
 pub fn execute_command(command_id: &str) -> Result<(), String> {
+    // WAT-302: window commands are handled here first. Unsupported on
+    // macOS for v1 (accessibility API requires permission UX beyond
+    // this PR's scope); the helper returns Err directly.
+    if try_handle_window_command(command_id)? {
+        return Ok(());
+    }
     match command_id {
         "cmd:lock" => {
             Command::new("pmset")
@@ -128,6 +266,11 @@ pub fn execute_command(command_id: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 pub fn execute_command(command_id: &str) -> Result<(), String> {
+    // WAT-302: window commands come first because they short-circuit
+    // the legacy-command match below on success.
+    if try_handle_window_command(command_id)? {
+        return Ok(());
+    }
     match command_id {
         "cmd:lock" => {
             Command::new("rundll32.exe")
@@ -184,5 +327,11 @@ pub fn execute_command(command_id: &str) -> Result<(), String> {
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn execute_command(command_id: &str) -> Result<(), String> {
+    // WAT-302: surface a clean "not yet supported" error for window
+    // commands on Linux; the legacy fallback below handles everything
+    // else.
+    if try_handle_window_command(command_id)? {
+        return Ok(());
+    }
     Err(format!("System commands not supported on this platform: {}", command_id))
 }
