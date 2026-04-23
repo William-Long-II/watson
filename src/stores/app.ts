@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { SearchResult, Settings, Scratchpad, Note, StartupWarning } from '../types';
+import type {
+  SearchResult,
+  Settings,
+  Scratchpad,
+  Note,
+  StartupWarning,
+  Notification,
+} from '../types';
 
 interface AppState {
   query: string;
@@ -15,6 +22,9 @@ interface AppState {
   noteEditorVisible: boolean;
   startupWarnings: StartupWarning[];
   reservedPrefixes: string[];
+  notifications: Notification[];
+  notificationsUnread: number;
+  notificationsOpen: boolean;
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -43,6 +53,10 @@ interface AppState {
   loadReservedPrefixes: () => Promise<void>;
   pinClipboardEntry: (id: string) => Promise<void>;
   unpinClipboardEntry: (id: string) => Promise<void>;
+  loadNotifications: () => Promise<void>;
+  setNotificationsOpen: (open: boolean) => void;
+  dismissNotification: (id: string) => Promise<void>;
+  dismissAllNotifications: () => Promise<void>;
 }
 
 // Height constants
@@ -68,6 +82,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   noteEditorVisible: false,
   startupWarnings: [],
   reservedPrefixes: [],
+  notifications: [],
+  notificationsUnread: 0,
+  notificationsOpen: false,
 
   setQuery: async (query: string) => {
     set({ query, selectedIndex: 0 });
@@ -357,6 +374,55 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().setQuery(get().query);
     } catch (e) {
       console.error('Failed to unpin clipboard entry:', e);
+    }
+  },
+
+  // WAT-406: notifications drawer. Keep the unread count in the store
+  // so the header badge updates without an extra IPC on every render.
+  loadNotifications: async () => {
+    try {
+      const [list, unread] = await Promise.all([
+        invoke<Notification[]>('list_notifications'),
+        invoke<number>('notifications_unread_count'),
+      ]);
+      set({ notifications: list, notificationsUnread: unread });
+    } catch (e) {
+      console.error('Failed to load notifications:', e);
+    }
+  },
+
+  setNotificationsOpen: (open: boolean) => {
+    set({ notificationsOpen: open });
+    if (open) {
+      // Re-fetch when the drawer opens so late-arriving notifications
+      // (e.g. an update check that just failed) appear without a
+      // separate refresh affordance.
+      void get().loadNotifications();
+    }
+  },
+
+  dismissNotification: async (id: string) => {
+    // Optimistic: mark dismissed locally, decrement unread.
+    const current = get().notifications;
+    const next = current.map((n) =>
+      n.id === id ? { ...n, dismissed: true } : n,
+    );
+    const unread = next.filter((n) => !n.dismissed).length;
+    set({ notifications: next, notificationsUnread: unread });
+    try {
+      await invoke('dismiss_notification', { id });
+    } catch (e) {
+      console.error('Failed to dismiss notification:', e);
+    }
+  },
+
+  dismissAllNotifications: async () => {
+    const next = get().notifications.map((n) => ({ ...n, dismissed: true }));
+    set({ notifications: next, notificationsUnread: 0 });
+    try {
+      await invoke('dismiss_all_notifications');
+    } catch (e) {
+      console.error('Failed to dismiss all notifications:', e);
     }
   },
 }));

@@ -11,6 +11,7 @@ import { NoteEditor } from './components/NoteEditor';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { SnippetsSettings } from './components/SnippetsSettings';
 import { ConfirmModal } from './components/ConfirmModal';
+import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -39,6 +40,48 @@ function SettingsIcon({ onClick }: { onClick: () => void }) {
         <circle cx="12" cy="12" r="3" />
         <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
       </svg>
+    </button>
+  );
+}
+
+/**
+ * WAT-406: header bell icon that opens the notifications drawer. A
+ * small red dot appears on the bell when unread count > 0.
+ */
+function NotificationsBell({
+  count,
+  onClick,
+}: {
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={count > 0 ? `Notifications (${count} unread)` : 'Notifications'}
+      title="Notifications"
+      className="relative p-1.5 rounded-lg hover:bg-[var(--selected)] transition-colors"
+    >
+      <svg
+        className="w-5 h-5 text-gray-400 hover:text-gray-600"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+      >
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      </svg>
+      {count > 0 && (
+        <span
+          data-testid="notifications-badge"
+          aria-hidden="true"
+          className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 text-[10px] font-semibold text-white bg-red-500 rounded-full flex items-center justify-center"
+        >
+          {count > 9 ? '9+' : count}
+        </span>
+      )}
     </button>
   );
 }
@@ -493,12 +536,30 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
-  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible, loadReservedPrefixes, setQuery } = useAppStore();
+  const {
+    loadSettings,
+    reindexApps,
+    settings,
+    showSettings,
+    setShowSettings,
+    resizeWindow,
+    scratchpadVisible,
+    noteEditorVisible,
+    loadReservedPrefixes,
+    setQuery,
+    loadNotifications,
+    notificationsUnread,
+    notificationsOpen,
+    setNotificationsOpen,
+  } = useAppStore();
 
   useEffect(() => {
     loadSettings();
     reindexApps();
     loadReservedPrefixes();
+    // WAT-406: load notifications + unread count on mount so the
+    // header badge reflects reality before the user clicks the bell.
+    loadNotifications();
     // WAT-304: populate the empty-query recents carousel on first paint
     // so the user doesn't have to type anything to see their recent apps
     // and files. Fires the same code path as clearing an existing query.
@@ -549,14 +610,22 @@ function App() {
           <WatsonLogo />
           <span className="text-lg font-semibold">Watson</span>
         </div>
-        <SettingsIcon onClick={() => setShowSettings(!showSettings)} />
+        <div className="flex items-center gap-1">
+          <NotificationsBell
+            count={notificationsUnread}
+            onClick={() => setNotificationsOpen(!notificationsOpen)}
+          />
+          <SettingsIcon onClick={() => setShowSettings(!showSettings)} />
+        </div>
       </div>
 
       <StartupWarningBanner onOpenSettings={() => setShowSettings(true)} />
 
       <SearchBar />
 
-      {noteEditorVisible ? (
+      {notificationsOpen ? (
+        <NotificationsDrawer />
+      ) : noteEditorVisible ? (
         <NoteEditor />
       ) : scratchpadVisible ? (
         <Scratchpad />
