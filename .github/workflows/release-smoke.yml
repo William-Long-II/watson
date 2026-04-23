@@ -1,0 +1,359 @@
+name: Release Smoke
+
+# TA-01 mitigation for R-01 (auto-update pipeline regression).
+#
+# This workflow runs AFTER a release is published and verifies the update
+# manifest plus one launch-smoke of the binary. A failure here means we just
+# shipped something broken to users — an issue should be filed and the
+# release considered for rollback.
+#
+# Scope (MVP):
+#   1. verify-manifest  — validate latest.json schema, probe artifact URLs,
+#                         verify minisign signatures against the configured
+#                         pubkey.
+#   2. launch-smoke     — install platform artifact on windows/macos/ubuntu,
+#                         launch once, assert process stays alive briefly.
+#
+# Deferred to TA-01b (see docs/testing/test-design-progress.md):
+#   - Tauri-driver E2E round-trip against a staged pre-release.
+#   - Moving smoke inline in release.yml so a failing smoke keeps the
+#     release drafted (currently it runs post-publish).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to smoke-test (e.g. v1.3.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  # Must match tauri.conf.json plugins.updater.pubkey. The base64-decoded form
+  # is the two-line minisign public key file.
+  TAURI_UPDATER_PUBKEY_B64: dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEREMzdGNDA0QUIxQjBFM0QKUldROURodXJCUFEzM1pwdUNKeUlCaHpIMzM0b3ZVS0ppc3F4cnlQQVh3YXhYY3phbHNzY1AyZjgK
+
+jobs:
+  verify-manifest:
+    name: Verify update manifest
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+      tag: ${{ steps.resolve-tag.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: resolve-tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install minisign and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign jq
+
+      - name: Write pubkey to file
+        run: |
+          echo "$TAURI_UPDATER_PUBKEY_B64" | base64 -d > pubkey.pub
+          echo "--- pubkey ---"
+          cat pubkey.pub
+
+      - name: Download latest.json
+        env:
+          TAG: ${{ steps.resolve-tag.outputs.tag }}
+        run: |
+          # GitHub serves asset downloads at:
+          #   https://github.com/<owner>/<repo>/releases/download/<tag>/latest.json
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/latest.json"
+          echo "Fetching $URL"
+          curl --fail --location --retry 3 --retry-delay 5 -o latest.json "$URL"
+          echo "--- latest.json ---"
+          cat latest.json
+
+      - name: Validate schema
+        id: parse
+        run: |
+          # Required top-level fields
+          for field in version platforms pub_date; do
+            if ! jq -e ".$field" latest.json > /dev/null; then
+              echo "::error::latest.json is missing required field: $field"
+              exit 1
+            fi
+          done
+
+          VERSION=$(jq -r '.version' latest.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # platforms must be a non-empty object
+          COUNT=$(jq '.platforms | length' latest.json)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::latest.json has no platform entries"
+            exit 1
+          fi
+          echo "Found $COUNT platform entries"
+
+          # Each entry must have url + signature
+          MISSING=$(jq -r '
+            .platforms
+            | to_entries[]
+            | select((.value.url // "") == "" or (.value.signature // "") == "")
+            | .key
+          ' latest.json)
+          if [ -n "$MISSING" ]; then
+            echo "::error::Platform entries missing url or signature:"
+            echo "$MISSING"
+            exit 1
+          fi
+
+      - name: Probe and verify each platform artifact
+        run: |
+          set -eu
+
+          # Iterate platforms; for each: HEAD the URL, download, verify sig.
+          mkdir -p artifacts
+
+          jq -r '.platforms | to_entries[] | "\(.key)\t\(.value.url)\t\(.value.signature)"' latest.json |
+          while IFS=$'\t' read -r platform url signature; do
+            echo ""
+            echo "::group::Verifying $platform"
+            echo "  url: $url"
+
+            # 1. HEAD probe — artifact must be reachable.
+            STATUS=$(curl -s -L -o /dev/null -w '%{http_code}' --head "$url")
+            if [ "$STATUS" != "200" ]; then
+              echo "::error::$platform: HEAD $url returned $STATUS (expected 200)"
+              exit 1
+            fi
+            echo "  probe: ok ($STATUS)"
+
+            # 2. Download artifact.
+            ARTIFACT="artifacts/$(basename "$url")"
+            curl --fail --location --retry 3 --retry-delay 5 -o "$ARTIFACT" "$url"
+            echo "  downloaded: $(wc -c <"$ARTIFACT") bytes"
+
+            # 3. Decode the signature field (base64) into a .sig file.
+            #    The Tauri updater stores the full minisign signature-file
+            #    contents (including the untrusted-comment header) as base64
+            #    in the manifest.
+            SIGFILE="$ARTIFACT.sig"
+            printf '%s' "$signature" | base64 -d > "$SIGFILE"
+            echo "  sigfile: $(wc -c <"$SIGFILE") bytes"
+
+            # 4. Verify with minisign. -q quiets the "trusted comment" line.
+            if ! minisign -V -p pubkey.pub -m "$ARTIFACT" -x "$SIGFILE" -q; then
+              echo "::error::$platform: minisign verification FAILED for $ARTIFACT"
+              exit 1
+            fi
+            echo "  signature: verified"
+
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "All platform artifacts verified."
+
+      - name: Upload artifacts for launch-smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-manifest
+          path: |
+            latest.json
+            pubkey.pub
+          retention-days: 7
+
+  launch-smoke:
+    name: Launch smoke (${{ matrix.platform }})
+    needs: verify-manifest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            platform_key: linux-x86_64
+          - platform: windows-latest
+            platform_key: windows-x86_64
+          - platform: macos-latest
+            platform_key: darwin-aarch64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Download manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-manifest
+
+      - name: Resolve artifact url for this platform (bash)
+        if: runner.os != 'Windows'
+        id: resolve-nix
+        shell: bash
+        run: |
+          URL=$(python3 -c "
+          import json, sys
+          m = json.load(open('latest.json'))
+          key = '${{ matrix.platform_key }}'
+          entry = m['platforms'].get(key)
+          if not entry:
+              print(f'::error::platform key {key} not found in latest.json', file=sys.stderr)
+              sys.exit(1)
+          print(entry['url'])
+          ")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve artifact url for this platform (windows)
+        if: runner.os == 'Windows'
+        id: resolve-win
+        shell: pwsh
+        run: |
+          $m = Get-Content latest.json -Raw | ConvertFrom-Json
+          $entry = $m.platforms.'${{ matrix.platform_key }}'
+          if ($null -eq $entry) {
+            Write-Error "platform key ${{ matrix.platform_key }} not found in latest.json"
+            exit 1
+          }
+          "url=$($entry.url)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      # Linux: download AppImage, chmod, run with --appimage-extract-and-run,
+      # send SIGTERM after short wait. AppImage without a display server will
+      # exit non-zero; we just check the process started.
+      - name: Launch smoke (linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libappindicator3-1 librsvg2-2 \
+            xvfb fuse libfuse2
+          URL="${{ steps.resolve-nix.outputs.url }}"
+          curl --fail --location -o app.AppImage "$URL"
+          chmod +x app.AppImage
+          # Run under Xvfb; timeout=10s. Exit code 124 from timeout = still running
+          # when killed (good). Anything else non-zero = crashed on launch.
+          set +e
+          xvfb-run --auto-servernum timeout --preserve-status 10s ./app.AppImage --appimage-extract-and-run || true
+          CODE=$?
+          set -e
+          echo "Process exit: $CODE"
+          # 124 (timeout killed running process) or 143 (SIGTERM) = healthy
+          # 0 = clean exit from a single-instance hotkey registration, acceptable
+          # Anything else = startup failure.
+          if [ "$CODE" -ne 124 ] && [ "$CODE" -ne 143 ] && [ "$CODE" -ne 0 ]; then
+            echo "::error::App exited with unexpected code $CODE within 10s of launch"
+            exit 1
+          fi
+
+      # macOS: download .app.tar.gz, extract, launch via `open`, check running.
+      - name: Launch smoke (macos)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          URL="${{ steps.resolve-nix.outputs.url }}"
+          curl --fail --location -o app.tar.gz "$URL"
+          mkdir -p extracted
+          tar -xzf app.tar.gz -C extracted
+          APP=$(find extracted -maxdepth 2 -name '*.app' -type d | head -n1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app bundle found in archive"
+            ls -R extracted
+            exit 1
+          fi
+          echo "App bundle: $APP"
+          open "$APP"
+          sleep 5
+          if pgrep -f "$APP" > /dev/null; then
+            echo "Process is alive after 5s — pass"
+            pkill -f "$APP" || true
+          else
+            echo "::error::App bundle did not stay alive 5s after launch"
+            exit 1
+          fi
+
+      # Windows: download .exe (NSIS), run silently, wait, check process list.
+      - name: Launch smoke (windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $url = "${{ steps.resolve-win.outputs.url }}"
+          $archive = "app_installer_archive"
+          # tauri updater url may be a .zip containing the .exe installer.
+          # Probe the url to decide how to handle it.
+          Invoke-WebRequest -Uri $url -OutFile "payload"
+          $bytes = [System.IO.File]::ReadAllBytes("payload")
+          # Zip files start with 0x50 0x4B (PK).
+          if ($bytes[0] -eq 0x50 -and $bytes[1] -eq 0x4B) {
+            Expand-Archive -Path payload -DestinationPath $archive -Force
+            $exe = Get-ChildItem -Path $archive -Filter '*.exe' -Recurse | Select-Object -First 1
+          } else {
+            Rename-Item -Path payload -NewName payload.exe
+            $exe = Get-Item -Path "payload.exe"
+          }
+          if ($null -eq $exe) {
+            Write-Error "No installer .exe found in downloaded artifact"
+            exit 1
+          }
+          Write-Host "Installer: $($exe.FullName)"
+          # Run NSIS silent install. /S = silent. Exit code 0 expected.
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) {
+            Write-Error "Installer exited with code $($p.ExitCode)"
+            exit 1
+          }
+          Write-Host "Install complete"
+          # Locate installed binary. Default NSIS path for Tauri apps:
+          #   C:\Users\<user>\AppData\Local\watson\watson.exe
+          $candidates = @(
+            "$env:LOCALAPPDATA\watson\watson.exe",
+            "$env:ProgramFiles\watson\watson.exe",
+            "${env:ProgramFiles(x86)}\watson\watson.exe"
+          )
+          $installed = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($null -eq $installed) {
+            Write-Error "Installed binary not found. Checked: $($candidates -join '; ')"
+            exit 1
+          }
+          Write-Host "Launching: $installed"
+          $proc = Start-Process -FilePath $installed -PassThru
+          Start-Sleep -Seconds 5
+          if ($proc.HasExited) {
+            Write-Error "watson.exe exited within 5s (code $($proc.ExitCode)) — launch smoke failed"
+            exit 1
+          }
+          Stop-Process -Id $proc.Id -Force
+          Write-Host "Launch smoke passed"
+
+  report-failure:
+    name: File issue on smoke failure
+    needs: [verify-manifest, launch-smoke]
+    if: always() && (needs.verify-manifest.result == 'failure' || needs.launch-smoke.result == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = '${{ needs.verify-manifest.outputs.tag }}' || '${{ inputs.tag }}' || '${{ github.event.release.tag_name }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `# Release smoke FAILED for \`${tag}\``,
+              ``,
+              `One or more release-smoke jobs failed for this release. This means users may have already received a broken auto-update.`,
+              ``,
+              `**Immediate action:** decide whether to roll back the release.`,
+              ``,
+              `- verify-manifest: ${{ needs.verify-manifest.result }}`,
+              `- launch-smoke: ${{ needs.launch-smoke.result }}`,
+              ``,
+              `[View failing run](${runUrl})`,
+              ``,
+              `See TA-01 / R-01 in \`docs/testing/test-design-progress.md\` for context.`,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release smoke FAILED for ${tag}`,
+              body,
+              labels: ['release-smoke', 'high-priority'],
+            });
