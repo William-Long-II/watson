@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 
 export function NoteEditor() {
-  const { currentNote, createNote, updateNote, deleteNote, closeNoteEditor } = useAppStore();
+  const { currentNote, createNote, updateNote, deleteNote, closeNoteEditor, reloadNoteFromDisk } =
+    useAppStore();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
@@ -20,6 +22,30 @@ export function NoteEditor() {
       titleRef.current?.focus();
     }
   }, [currentNote]);
+
+  // WAT-204: reconcile actions. "Use disk" pulls in the .md file content
+  // via reload_note_from_disk (which updates the DB). "Keep DB" writes
+  // the current DB content back to disk via a normal update(), which
+  // also refreshes the mtime so the next open is in-sync.
+  const handleUseDisk = async () => {
+    if (!currentNote) return;
+    setIsReconciling(true);
+    try {
+      await reloadNoteFromDisk(currentNote.id);
+    } finally {
+      setIsReconciling(false);
+    }
+  };
+
+  const handleKeepDatabase = async () => {
+    if (!currentNote) return;
+    setIsReconciling(true);
+    try {
+      await updateNote(currentNote.id, title, content);
+    } finally {
+      setIsReconciling(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!title.trim()) return;
@@ -78,6 +104,39 @@ export function NoteEditor() {
           </button>
         </div>
       </div>
+
+      {currentNote?.external_changes && (
+        <div
+          role="alert"
+          className="mb-3 p-3 border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 rounded-lg"
+        >
+          <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+            This note was modified outside Watson since you last saved it.
+          </p>
+          <p className="text-xs text-amber-800/80 dark:text-amber-100/80 mt-1">
+            Disk version last changed {new Date(currentNote.external_changes.disk_modified_at * 1000).toLocaleString()}.
+            Choose which copy wins — the other will be overwritten.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <button
+              type="button"
+              onClick={handleUseDisk}
+              disabled={isReconciling}
+              className="px-2 py-1 text-xs bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50"
+            >
+              Use disk version
+            </button>
+            <button
+              type="button"
+              onClick={handleKeepDatabase}
+              disabled={isReconciling}
+              className="px-2 py-1 text-xs bg-[var(--input-bg)] rounded hover:bg-[var(--selected)] disabled:opacity-50"
+            >
+              Keep database version
+            </button>
+          </div>
+        </div>
+      )}
 
       <input
         ref={titleRef}

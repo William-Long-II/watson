@@ -393,6 +393,13 @@ fn get_note(id: String, state: State<AppState>) -> Result<Option<notes::Note>, S
     state.notes.get(&id)
 }
 
+/// WAT-204: adopt the on-disk version of a note, overwriting the DB. The
+/// frontend reconcile dialog calls this when the user picks "Use disk".
+#[tauri::command]
+fn reload_note_from_disk(id: String, state: State<AppState>) -> Result<notes::Note, String> {
+    state.notes.reload_from_disk(&id)
+}
+
 #[tauri::command]
 fn search_notes(query: String, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
     state.notes.search(&query)
@@ -611,6 +618,7 @@ pub fn run() {
             update_note,
             delete_note,
             get_note,
+            reload_note_from_disk,
             search_notes,
             get_recent_notes,
             search_files,
