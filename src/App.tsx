@@ -45,12 +45,14 @@ function WebSearchEditor({
   search,
   onSave,
   onCancel,
-  onDelete
+  onDelete,
+  reservedPrefixes,
 }: {
   search: WebSearch | null;
   onSave: (ws: WebSearch) => void;
   onCancel: () => void;
   onDelete?: () => void;
+  reservedPrefixes: string[];
 }) {
   const [name, setName] = useState(search?.name || '');
   const [keyword, setKeyword] = useState(search?.keyword || '');
@@ -59,6 +61,9 @@ function WebSearchEditor({
 
   // Check if URL template uses {instance} placeholder
   const needsInstance = url.includes('{instance}');
+  // WAT-205: don't block save on a collision — the user may be intentionally
+  // testing or may have a reason to keep the row. Just surface the issue.
+  const isReservedKeyword = reservedPrefixes.includes(keyword);
   const isValid = name && keyword && url && (!needsInstance || instance);
 
   const handleSave = () => {
@@ -93,6 +98,17 @@ function WebSearchEditor({
           placeholder="g"
           className="w-full px-3 py-1.5 text-sm bg-[var(--background)] border border-[var(--border)] rounded-lg outline-none focus:ring-1 focus:ring-blue-500"
         />
+        {isReservedKeyword && (
+          <p
+            role="alert"
+            className="text-xs text-amber-600 dark:text-amber-400 mt-1"
+          >
+            "{keyword}" is a reserved query prefix — this web search will
+            be unreachable because the prefix always triggers a built-in
+            action. Pick a different keyword or save anyway if that's
+            intended.
+          </p>
+        )}
       </div>
       <div>
         <label className="text-xs text-gray-500 mb-1 block">URL (use {'{query}'} for search term, {'{instance}'} for subdomain)</label>
@@ -149,7 +165,7 @@ function WebSearchEditor({
 }
 
 function SettingsPanel({ onClose }: { onClose: () => void }) {
-  const { settings, saveSettings, reindexApps, reindexFiles } = useAppStore();
+  const { settings, saveSettings, reindexApps, reindexFiles, reservedPrefixes } = useAppStore();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [version, setVersion] = useState('');
@@ -260,6 +276,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                 search={null}
                 onSave={(ws) => handleSaveWebSearch(ws)}
                 onCancel={() => setIsAddingNew(false)}
+                reservedPrefixes={reservedPrefixes}
               />
             )}
 
@@ -271,6 +288,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                     onSave={(updated) => handleSaveWebSearch(updated, index)}
                     onCancel={() => setEditingIndex(null)}
                     onDelete={() => handleDeleteWebSearch(index)}
+                    reservedPrefixes={reservedPrefixes}
                   />
                 ) : (
                   <div
@@ -285,6 +303,14 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
                       {ws.url.includes('{instance}') && !ws.instance && (
                         <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded font-medium">
                           Setup needed
+                        </span>
+                      )}
+                      {reservedPrefixes.includes(ws.keyword) && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded font-medium"
+                          title={`"${ws.keyword}" is a reserved query prefix — this search is unreachable.`}
+                        >
+                          Shadowed
                         </span>
                       )}
                     </div>
@@ -404,11 +430,12 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
-  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible } = useAppStore();
+  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible, loadReservedPrefixes } = useAppStore();
 
   useEffect(() => {
     loadSettings();
     reindexApps();
+    loadReservedPrefixes();
     resizeWindow(); // Set initial window size
 
     // Disable default context menu

@@ -14,6 +14,7 @@ interface AppState {
   currentNote: Note | null;
   noteEditorVisible: boolean;
   startupWarnings: StartupWarning[];
+  reservedPrefixes: string[];
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -38,6 +39,7 @@ interface AppState {
   reindexFiles: () => Promise<number>;
   loadStartupWarnings: () => Promise<void>;
   dismissStartupWarning: (id: string) => Promise<void>;
+  loadReservedPrefixes: () => Promise<void>;
 }
 
 // Height constants
@@ -62,6 +64,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentNote: null,
   noteEditorVisible: false,
   startupWarnings: [],
+  reservedPrefixes: [],
 
   setQuery: async (query: string) => {
     set({ query, selectedIndex: 0 });
@@ -302,6 +305,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       await invoke('dismiss_startup_warning', { id });
     } catch (e) {
       console.error('Failed to dismiss startup warning:', e);
+    }
+  },
+
+  loadReservedPrefixes: async () => {
+    try {
+      const prefixes = await invoke<string[]>('get_reserved_prefixes');
+      set({ reservedPrefixes: prefixes });
+    } catch (e) {
+      console.error('Failed to load reserved prefixes:', e);
     }
   },
 }));

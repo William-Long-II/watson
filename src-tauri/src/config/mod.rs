@@ -13,6 +13,30 @@ use crate::config::settings::Settings;
 /// Bump this when adding a migration in `config/migrations.rs`.
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
+/// WAT-205 / R-10: query prefixes that shadow user-defined web-search
+/// keywords if reused.
+///
+/// The list is a superset of `search::dispatch::RESERVED_PREFIXES`
+/// (router-level reserved prefixes — notes / files / clipboard) plus
+/// the UI-level prefixes that the SearchBar or downstream dispatchers
+/// interpret specially: `s` (scratchpad chained shortcut), `>` (system
+/// command prefix). A web-search keyword equal to any of these is
+/// effectively unreachable, so the settings UI warns the user.
+///
+/// Returns a `Vec` rather than a `&[&str]` so it can be serialized
+/// directly by the Tauri command bridge.
+pub fn user_reserved_prefixes() -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = crate::search::dispatch::RESERVED_PREFIXES.to_vec();
+    // UI-level reserved. Kept in sync manually with:
+    // - `SearchBar.tsx` empty-query keyboard shortcuts (s, `, n, N, f)
+    // - `lib.rs::search` command-prefix detection (>).
+    // `n`, `f`, and `cb` are already in the router list above.
+    // The backtick `` ` `` is a keyboard char only, not a query prefix,
+    // so it's omitted here.
+    out.extend(["s", ">"]);
+    out
+}
+
 /// Non-fatal conditions the caller of `load_*_with_warnings` should surface
 /// to the UI. Intentionally free of Tauri / frontend types so `config` can
 /// stay a leaf module; the caller translates into `warnings::StartupWarning`.

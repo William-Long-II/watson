@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::config::{load_settings_from, parse_settings, SettingsWarning, CURRENT_SCHEMA_VERSION};
+    use crate::config::{
+        load_settings_from, parse_settings, user_reserved_prefixes, SettingsWarning,
+        CURRENT_SCHEMA_VERSION,
+    };
     use crate::config::settings::Settings;
     use std::collections::HashSet;
     use tempfile::TempDir;
@@ -30,6 +33,11 @@ mod tests {
     /// A web-search keyword colliding with one of these silently shadows
     /// the reserved feature (notes / files / clipboard / scratchpad /
     /// system commands) and is effectively unreachable.
+    ///
+    /// WAT-205: the canonical list now lives in `user_reserved_prefixes()`.
+    /// This local constant is pinned via
+    /// `local_reserved_prefixes_fixture_matches_canonical` below, so any
+    /// drift between the two is caught.
     const RESERVED_PREFIXES: &[&str] =
         &["n", "notes", "f", "files", "cb", "clip", "s", ">"];
 
@@ -354,6 +362,48 @@ accent_color = "red"
         assert_eq!(settings.search.max_results, 8);
         assert_eq!(settings.activation.hotkey, "Alt+Space");
         assert_eq!(settings.theme.mode, "system");
+    }
+
+    // --- WAT-205: user-reserved prefix list ---
+
+    #[test]
+    fn user_reserved_prefixes_is_superset_of_router_reserved_prefixes() {
+        // Single source of truth contract: the UX-level reserved list must
+        // include every router-level reserved prefix. If `dispatch.rs` adds
+        // a new reserved prefix in the future, this test fails until
+        // `user_reserved_prefixes` is extended to match.
+        let user: HashSet<&'static str> = user_reserved_prefixes().into_iter().collect();
+        for router_prefix in crate::search::dispatch::RESERVED_PREFIXES {
+            assert!(
+                user.contains(router_prefix),
+                "user_reserved_prefixes missing router-reserved prefix '{router_prefix}' \
+                 (present: {user:?})",
+            );
+        }
+    }
+
+    #[test]
+    fn user_reserved_prefixes_includes_ui_level_reserved() {
+        // Pin the UX-only additions ('s' scratchpad shortcut, '>' system-
+        // command prefix). If either is removed intentionally, update this
+        // test and the SearchBar/dispatch call sites together.
+        let user: HashSet<&'static str> = user_reserved_prefixes().into_iter().collect();
+        assert!(user.contains("s"), "UI-level 's' (scratchpad) must be reserved");
+        assert!(user.contains(">"), "UI-level '>' (system commands) must be reserved");
+    }
+
+    #[test]
+    fn local_reserved_prefixes_fixture_matches_canonical() {
+        // The local `RESERVED_PREFIXES` fixture in this test module used to
+        // be a hand-maintained copy. Now it's a pin: if the canonical list
+        // drifts, the fixture drifts, and this test catches it before the
+        // other web-search-keyword tests silently pass on stale data.
+        let canonical: HashSet<&'static str> = user_reserved_prefixes().into_iter().collect();
+        let local: HashSet<&'static str> = RESERVED_PREFIXES.iter().copied().collect();
+        assert_eq!(
+            canonical, local,
+            "local fixture has drifted from user_reserved_prefixes()"
+        );
     }
 
     #[test]

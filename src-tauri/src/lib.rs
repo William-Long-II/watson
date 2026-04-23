@@ -397,6 +397,13 @@ fn open_config_folder() -> Result<(), String> {
     open::that(&dir).map_err(|e| e.to_string())
 }
 
+/// WAT-205: returns the list of query prefixes the settings UI should flag
+/// as unreachable if reused as a web-search keyword.
+#[tauri::command]
+fn get_reserved_prefixes() -> Vec<&'static str> {
+    config::user_reserved_prefixes()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
@@ -535,7 +542,8 @@ pub fn run() {
             clear_file_index,
             get_startup_warnings,
             dismiss_startup_warning,
-            open_config_folder
+            open_config_folder,
+            get_reserved_prefixes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
