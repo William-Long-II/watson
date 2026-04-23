@@ -190,4 +190,47 @@ describe('NoteEditor — WAT-204 reconcile banner', () => {
     await user.click(screen.getByRole('button', { name: /preview/i }));
     expect(screen.getByText(/nothing to preview yet/i)).toBeInTheDocument();
   });
+
+  // --- WAT-405: delete-confirmation modal ---
+
+  it('Delete opens the confirm modal and only calls delete_note after Confirm', async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'delete_note') return undefined;
+      return undefined;
+    });
+    useAppStore.setState({ currentNote: note({ id: 'note:9' }) });
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    // Modal is open; backend has NOT been called yet.
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    const earlyCall = mockInvoke.mock.calls.find((c) => c[0] === 'delete_note');
+    expect(earlyCall, 'delete_note must not fire until Confirm is clicked').toBeUndefined();
+
+    // Confirm the delete from inside the modal.
+    const modalDelete = Array.from(dialog.querySelectorAll('button'))
+      .find((b) => /delete/i.test(b.textContent ?? ''));
+    expect(modalDelete).toBeDefined();
+    await user.click(modalDelete!);
+
+    expect(mockInvoke).toHaveBeenCalledWith('delete_note', { id: 'note:9' });
+  });
+
+  it('Delete modal cancels cleanly (no IPC, no state change)', async () => {
+    useAppStore.setState({ currentNote: note({ id: 'note:42' }) });
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    // Press Escape — modal closes, delete never fires.
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const called = mockInvoke.mock.calls.find((c) => c[0] === 'delete_note');
+    expect(called).toBeUndefined();
+  });
 });

@@ -110,7 +110,10 @@ describe('SnippetsSettings — WAT-301 CRUD', () => {
     expect(screen.getByRole('button', { name: /delete/i })).toBeInTheDocument();
   });
 
-  it('delete invokes delete_snippet with the id', async () => {
+  it('delete opens a confirmation modal and only fires delete_snippet after Confirm', async () => {
+    // WAT-405: destructive actions go through ConfirmModal, not
+    // straight to the backend. Clicking Delete in the editor opens
+    // the modal; the IPC fires only when the user confirms.
     const existing = snippet({ id: 'snip:42' });
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'list_snippets') return [existing];
@@ -123,6 +126,43 @@ describe('SnippetsSettings — WAT-301 CRUD', () => {
     await user.click(screen.getByText(';addr'));
     await user.click(screen.getByRole('button', { name: /delete/i }));
 
+    // Modal is up — IPC not yet fired.
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeInTheDocument();
+    const deleteBefore = mockInvoke.mock.calls.find((c) => c[0] === 'delete_snippet');
+    expect(deleteBefore, 'delete_snippet must not fire until Confirm').toBeUndefined();
+
+    // Click the confirm button inside the dialog (not the one in the editor).
+    const confirmBtn = screen.getAllByRole('button', { name: /delete/i })
+      .find((b) => dialog.contains(b));
+    expect(confirmBtn).toBeDefined();
+    await user.click(confirmBtn!);
+
     expect(mockInvoke).toHaveBeenCalledWith('delete_snippet', { id: 'snip:42' });
+  });
+
+  it('delete modal cancels cleanly without firing the IPC', async () => {
+    const existing = snippet({ id: 'snip:99' });
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'list_snippets') return [existing];
+      return undefined;
+    });
+    const user = userEvent.setup();
+    render(<SnippetsSettings />);
+
+    await screen.findByText(';addr');
+    await user.click(screen.getByText(';addr'));
+    await user.click(screen.getByRole('button', { name: /delete/i }));
+
+    // Cancel on the dialog.
+    const dialog = screen.getByRole('dialog');
+    const cancel = Array.from(dialog.querySelectorAll('button'))
+      .find((b) => /cancel/i.test(b.textContent ?? ''));
+    expect(cancel).toBeTruthy();
+    await user.click(cancel!);
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    const called = mockInvoke.mock.calls.find((c) => c[0] === 'delete_snippet');
+    expect(called, 'cancel must not fire delete_snippet').toBeUndefined();
   });
 });
