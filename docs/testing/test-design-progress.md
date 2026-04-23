@@ -103,8 +103,8 @@ Categories: TECH · SEC · PERF · DATA · BUS · OPS.
 |----|-----|-------|---|---|-------|--------|-----------|
 | R-01 | OPS | Auto-update pipeline regression ships broken binary | 3 | 3 | **9** | BLOCK | Three update-pipeline bugs shipped in 30 days (1.2.0 → 1.2.6). Signing key was leaked once and regenerated. Untested update = shipping a bricked app to real users in minutes. |
 | R-02 | DATA | SQLite schema migration corrupts user DB across version upgrade | 2 | 3 | **6** | MITIGATE | `db/schema.rs` exists, no migration framework seen. 1.3.0 added `notes` + `files` tables; future schema changes with no migration test = silent data loss. |
-| R-03 | SEC | `launch_app` on Windows uses `cmd /C start "" <path>` with path from indexer | 2 | 3 | **6** | MITIGATE | Untrusted input unlikely (paths come from Start Menu/registry), but any attacker-controlled `.lnk` with shell metacharacters in its target could hit shell interpretation. Low probability, high impact. |
-| R-04 | SEC | Web search `{instance}` placeholder not URL-encoded in template substitution | 3 | 2 | **6** | MITIGATE | `lib.rs:225-231` — `ws.instance` is interpolated into URL without encoding. User-editable via settings UI. Malicious config imported/synced could redirect search to attacker domain or inject JS via `javascript:` URL. |
+| R-03 | SEC | ~~`launch_app` on Windows uses `cmd /C start "" <path>`~~ **MITIGATED** | 2 | 3 | **6** | ~~MITIGATE~~ DONE | `actions/mod.rs` now uses `open::that` on all platforms (ShellExecuteW on Windows, LaunchServices on macOS, xdg-open with argv on Linux) — no shell interpretation. Added control-character path validator with 14 tests. |
+| R-04 | SEC | ~~Web search `{instance}` placeholder not URL-encoded in template substitution~~ **MITIGATED** | 3 | 2 | **6** | ~~MITIGATE~~ DONE | `search/url_builder.rs` enforces scheme allowlist (http/https only), DNS-subdomain validation on `{instance}`, and URL-encoding on `{query}`. 30 tests cover accepted and rejected cases. |
 | R-05 | DATA | Notes stored on disk + DB — index drift on crash/partial write | 2 | 3 | **6** | MITIGATE | Notes file-on-disk + SQLite index pattern. No test for crash recovery, half-written file, or stale index after external edit. Users' data. |
 | R-06 | TECH | IPC command surface entirely untested (25 commands) | 3 | 2 | **6** | MITIGATE | Any refactor to `AppState`, search dispatcher, or a manager can break the frontend in ways cargo test will not see. This is the largest test-debt single item. |
 | R-07 | PERF | File indexer on large home dirs blocks UI / runs unbounded | 3 | 2 | **6** | MITIGATE | `FileIndexer` walks `~/Documents`, `~/Downloads`, `~/Desktop` with `max_depth=5`. No test for: symlink loops, bind-mounts, network drives, very large trees. `reindex_files` is a synchronous Tauri command → UI hang on slow disks. |
@@ -133,7 +133,7 @@ Categories: TECH · SEC · PERF · DATA · BUS · OPS.
 ### Gate decision (updated)
 
 - **Blockers (score=9):** 0 — R-01 mitigated by TA-01 (`.github/workflows/release-smoke.yml`, verified green against v1.3.0 on 2026-04-22). The MVP still stands; TA-01b (full updater round-trip via tauri-driver) remains outstanding but is not a blocker.
-- **Concerns (score 6–8):** 6 — R-02 through R-07
+- **Concerns (score 6–8):** 4 remaining — R-02, R-05, R-06, R-07. Mitigated so far: R-03 (launch_app shell interpretation → `open::that`), R-04 (web-search URL validation).
 - **Decision:** **CONCERNS** (was FAIL pre-TA-01)
 
 R-01 comes off BLOCK with the release-smoke workflow in place: every published release now has its manifest schema, artifact reachability, minisign signatures, and launch behavior verified before a failure can pass unnoticed. A smoke failure auto-files a tagged issue so rollback decisions aren't silent.
