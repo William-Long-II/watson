@@ -1,4 +1,5 @@
 pub mod dispatch;
+pub mod ranking;
 pub mod url_builder;
 
 use fuzzy_matcher::FuzzyMatcher;
@@ -13,7 +14,18 @@ pub struct SearchResult {
     pub icon: Option<String>,
     pub result_type: ResultType,
     pub score: i64,
+    /// WAT-201: secondary sort key. Applications carry their decayed
+    /// launch-frequency here; other result types leave it at 0.0. When
+    /// two results share the same fuzzy `score`, the higher
+    /// `usage_bonus` wins. Zero-default so existing construction sites
+    /// need no changes.
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub usage_bonus: f64,
     pub action: SearchAction,
+}
+
+fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,18 +91,31 @@ impl SearchEngine {
     }
 
     pub fn search(&self, query: &str, items: Vec<SearchResult>) -> Vec<SearchResult> {
-        let mut results: Vec<(SearchResult, i64)> = items
+        let mut results: Vec<SearchResult> = items
             .into_iter()
             .filter_map(|mut item| {
                 self.score_item(query, &item.name, &item.description).map(|score| {
                     item.score = score;
-                    (item, score)
+                    item
                 })
             })
             .collect();
 
-        results.sort_by(|a, b| b.1.cmp(&a.1));
-        results.into_iter().map(|(item, _)| item).collect()
+        // WAT-201: two-key descending sort — primary `score`, secondary
+        // `usage_bonus`. When scores differ, usage is irrelevant
+        // (matching the "only breaks ties" contract). When scores are
+        // equal, more-used apps float up. `partial_cmp` can't return
+        // None for finite f64; fall back to Equal defensively.
+        results.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| {
+                    b.usage_bonus
+                        .partial_cmp(&a.usage_bonus)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+        });
+        results
     }
 }
 

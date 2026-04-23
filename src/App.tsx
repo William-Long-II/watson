@@ -324,6 +324,28 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {/* Search ranking */}
+        <div>
+          <label className="text-sm text-gray-500 mb-2 block">Search Ranking</label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.search.use_frequency_ranking}
+              onChange={(e) => {
+                saveSettings({
+                  ...settings,
+                  search: { ...settings.search, use_frequency_ranking: e.target.checked },
+                });
+              }}
+              className="w-4 h-4"
+            />
+            <span className="text-sm">Prefer frequently-used apps on ties</span>
+          </label>
+          <p className="text-xs text-gray-400 mt-1 ml-6">
+            When two results match your query equally well, show the one you use more often first.
+          </p>
+        </div>
+
         {/* File Search */}
         <div>
           <div className="flex justify-between items-center mb-2">
