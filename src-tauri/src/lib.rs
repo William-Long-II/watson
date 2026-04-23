@@ -6,6 +6,7 @@ mod config;
 mod db;
 mod files;
 mod indexers;
+mod layout;
 mod notes;
 mod scratchpad;
 mod search;
@@ -533,12 +534,65 @@ fn hide_window(window: tauri::WebviewWindow) {
 fn show_window(window: tauri::WebviewWindow) {
     window.show().ok();
     window.set_focus().ok();
+    // WAT-407: re-center on show so the window lands on the middle
+    // of whichever monitor it will appear on (useful after a
+    // disconnect/reconnect that leaves it offscreen).
+    center_window_on_current_monitor(&window);
 }
 
 #[tauri::command]
 fn resize_window(window: tauri::WebviewWindow, height: u32) {
     use tauri::LogicalSize;
-    let _ = window.set_size(LogicalSize::new(600, height));
+    // WAT-407: scale width to monitor so Watson doesn't look tiny on
+    // ultrawide / 4K displays. Falls back to 600 (the pre-WAT-407
+    // default) when monitor info isn't available.
+    let width = window_width_for_current_monitor(&window);
+    let _ = window.set_size(LogicalSize::new(width, height));
+}
+
+/// WAT-407: look up the monitor the window is currently on, convert
+/// its physical size to logical pixels, and pick the Watson width
+/// from the breakpoints table. Defaults to 600 if the OS can't
+/// report a monitor (rare — unplugged display mid-hotkey).
+fn window_width_for_current_monitor(window: &tauri::WebviewWindow) -> u32 {
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return layout::DEFAULT_WIDTH;
+    };
+    let scale = monitor.scale_factor();
+    // Avoid divide-by-zero on pathological scale factors.
+    if scale <= 0.0 {
+        return layout::DEFAULT_WIDTH;
+    }
+    let logical_width = monitor.size().width as f64 / scale;
+    layout::compute_window_width(logical_width)
+}
+
+/// WAT-407: center horizontally on the current monitor, preserving
+/// the window's current Y. Called from `show_window` so a re-showing
+/// window always lands within a sensible display rather than
+/// lingering offscreen after a monitor change.
+fn center_window_on_current_monitor(window: &tauri::WebviewWindow) {
+    use tauri::LogicalPosition;
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    if scale <= 0.0 {
+        return;
+    }
+    let mon_size = monitor.size();
+    let mon_pos = monitor.position();
+    let mon_logical_width = mon_size.width as f64 / scale;
+    let mon_logical_x = mon_pos.x as f64 / scale;
+    let width = window_width_for_current_monitor(window);
+    let center_x = layout::center_x_on_monitor(mon_logical_x, mon_logical_width, width);
+    // Preserve Y so we don't fight the user's vertical choice. Falls
+    // back to the monitor's y origin if outer_position fails.
+    let current_y = match window.outer_position() {
+        Ok(p) => p.y as f64 / scale,
+        Err(_) => mon_pos.y as f64 / scale,
+    };
+    let _ = window.set_position(LogicalPosition::new(center_x, current_y));
 }
 
 #[tauri::command]
@@ -820,6 +874,10 @@ pub fn run() {
                     } else {
                         hotkey_window.show().ok();
                         hotkey_window.set_focus().ok();
+                        // WAT-407: recenter so the launcher reliably
+                        // appears mid-screen on whatever monitor the
+                        // user is currently looking at.
+                        center_window_on_current_monitor(&hotkey_window);
                     }
                 }
             }) {
