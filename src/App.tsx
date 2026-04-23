@@ -384,6 +384,28 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
 
+        {/* WAT-303: clipboard privacy filter */}
+        <div>
+          <label className="text-sm text-gray-500 mb-2 block">Clipboard Ignore Patterns</label>
+          <p className="text-xs text-gray-400 mb-2">
+            One regex per line. Clipboard content matching any pattern is silently dropped before being recorded
+            &mdash; useful for filtering password-manager output, API tokens, or anything else you don&rsquo;t want
+            in history. Invalid patterns are ignored; valid ones still apply.
+          </p>
+          <textarea
+            value={(settings.clipboard?.ignore_patterns ?? []).join('\n')}
+            onChange={(e) => {
+              const lines = e.target.value.split('\n');
+              saveSettings({
+                ...settings,
+                clipboard: { ...settings.clipboard, ignore_patterns: lines },
+              });
+            }}
+            placeholder={`Examples:\n^eyJ[A-Za-z0-9_-]*\\.   (JWTs)\n^[0-9]{13,19}$         (credit-card numbers)`}
+            className="w-full h-24 px-3 py-2 text-xs font-mono bg-[var(--input-bg)] border border-[var(--border)] rounded-lg resize-y outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+
         {/* Actions */}
         <div>
           <label className="text-sm text-gray-500 mb-2 block">Actions</label>

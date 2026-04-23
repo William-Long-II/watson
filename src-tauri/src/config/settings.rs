@@ -19,6 +19,18 @@ pub struct Settings {
     pub web_searches: Vec<WebSearch>,
     #[serde(default)]
     pub file_search: FileSearchSettings,
+    #[serde(default)]
+    pub clipboard: ClipboardSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClipboardSettings {
+    /// WAT-303: regex patterns. Clipboard entries whose content matches
+    /// any pattern are dropped before reaching the history. Intended as
+    /// a privacy filter for password-manager output, tokens, etc.
+    /// Patterns that fail to compile surface as a startup warning.
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,6 +179,7 @@ impl Default for Settings {
             },
             web_searches: default_web_searches(),
             file_search: FileSearchSettings::default(),
+            clipboard: ClipboardSettings::default(),
         }
     }
 }

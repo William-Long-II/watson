@@ -41,6 +41,8 @@ interface AppState {
   loadStartupWarnings: () => Promise<void>;
   dismissStartupWarning: (id: string) => Promise<void>;
   loadReservedPrefixes: () => Promise<void>;
+  pinClipboardEntry: (id: string) => Promise<void>;
+  unpinClipboardEntry: (id: string) => Promise<void>;
 }
 
 // Height constants
@@ -327,6 +329,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ reservedPrefixes: prefixes });
     } catch (e) {
       console.error('Failed to load reserved prefixes:', e);
+    }
+  },
+
+  // WAT-303: pin / unpin flips the flag locally (optimistic) then
+  // fires the IPC. If the IPC fails we log and leave local state as-is;
+  // the next search refreshes from the authoritative backend.
+  pinClipboardEntry: async (id: string) => {
+    set({
+      results: get().results.map((r) => (r.id === id ? { ...r, pinned: true } : r)),
+    });
+    try {
+      await invoke('pin_clipboard_entry', { id });
+      // Refresh current view so the ordering reflects the new pin.
+      await get().setQuery(get().query);
+    } catch (e) {
+      console.error('Failed to pin clipboard entry:', e);
+    }
+  },
+
+  unpinClipboardEntry: async (id: string) => {
+    set({
+      results: get().results.map((r) => (r.id === id ? { ...r, pinned: false } : r)),
+    });
+    try {
+      await invoke('unpin_clipboard_entry', { id });
+      await get().setQuery(get().query);
+    } catch (e) {
+      console.error('Failed to unpin clipboard entry:', e);
     }
   },
 }));

@@ -4779,6 +4779,7 @@ dependencies = [
  "fuzzy-matcher",
  "meval",
  "open",
+ "regex",
  "rusqlite",
  "rusqlite_migration",
  "serde",

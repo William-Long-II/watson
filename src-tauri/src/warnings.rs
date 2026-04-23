@@ -28,6 +28,10 @@ pub enum StartupWarningKind {
     /// We're running with defaults; the user's real config is untouched
     /// on disk and they'll get it back when they upgrade again.
     SettingsFromNewerVersion,
+    /// WAT-303: one or more clipboard ignore-patterns failed to compile
+    /// as regex. The valid patterns still apply; the user sees which
+    /// ones they need to fix.
+    InvalidClipboardFilter,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +92,25 @@ impl StartupWarnings {
                 "Your config.toml was written by a newer Watson (schema v{file_version}); \
                  this version supports up to v{supported_version}. Running with defaults. \
                  Your config is preserved on disk — upgrade Watson to use it again."
+            ),
+        });
+    }
+
+    /// WAT-303: record one or more invalid clipboard ignore-patterns.
+    /// Joins all failing patterns into a single banner so users see
+    /// them at once instead of a scroll of near-duplicates.
+    pub fn record_invalid_clipboard_filters(&self, errors: &[String]) {
+        if errors.is_empty() {
+            return;
+        }
+        let id = "invalid-clipboard-filter".to_string();
+        let _ = self.dismiss(&id);
+        let joined = errors.join("; ");
+        self.push(StartupWarning {
+            id,
+            kind: StartupWarningKind::InvalidClipboardFilter,
+            message: format!(
+                "Clipboard ignore-pattern(s) failed to compile: {joined}. The valid patterns still apply."
             ),
         });
     }

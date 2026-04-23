@@ -1,10 +1,46 @@
 import type { SearchResult } from '../types';
+import { useAppStore } from '../stores/app';
 
 interface ResultItemProps {
   result: SearchResult;
   isSelected: boolean;
   onClick: () => void;
   index: number;
+}
+
+/**
+ * WAT-303: pin toggle for clipboard results. Rendered as a small
+ * clickable icon inline with the row. Stops propagation so clicking
+ * the pin doesn't also fire the row's main action (copy-to-clipboard).
+ */
+function PinButton({ result }: { result: SearchResult }) {
+  const { pinClipboardEntry, unpinClipboardEntry } = useAppStore();
+  const isPinned = result.pinned === true;
+  return (
+    <button
+      type="button"
+      aria-label={isPinned ? 'Unpin clipboard entry' : 'Pin clipboard entry'}
+      aria-pressed={isPinned}
+      title={isPinned ? 'Unpin (click to remove; survives clear history)' : 'Pin (survives clear history + app restart)'}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (isPinned) {
+          unpinClipboardEntry(result.id);
+        } else {
+          pinClipboardEntry(result.id);
+        }
+      }}
+      className={`mr-2 p-1 rounded transition-colors ${
+        isPinned
+          ? 'text-amber-500 hover:text-amber-600'
+          : 'text-gray-300 hover:text-amber-500 opacity-0 group-hover:opacity-100'
+      }`}
+    >
+      <svg className="w-4 h-4" viewBox="0 0 24 24" fill={isPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+        <path d="M12 2L12 8 M12 2L16 6 M12 2L8 6 M12 8L12 22 M6 10 L18 10" />
+      </svg>
+    </button>
+  );
 }
 
 function AppIcon() {
@@ -157,7 +193,7 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
     <div
       onClick={onClick}
       style={{ animationDelay: `${index * 30}ms` }}
-      className={`flex items-center px-4 py-3 cursor-pointer transition-all duration-150 animate-fade-slide-in opacity-0 ${
+      className={`group flex items-center px-4 py-3 cursor-pointer transition-all duration-150 animate-fade-slide-in opacity-0 ${
         isSelected
           ? 'bg-blue-500/10 border-l-2 border-blue-500'
           : 'hover:bg-[var(--selected)] border-l-2 border-transparent'
@@ -168,6 +204,7 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         <div className="font-medium truncate">{result.name}</div>
         <div className="text-xs text-gray-500 truncate">{result.description}</div>
       </div>
+      {result.result_type === 'clipboard' && <PinButton result={result} />}
       <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium px-2 py-1 rounded bg-[var(--input-bg)]">
         {getTypeLabel()}
       </div>

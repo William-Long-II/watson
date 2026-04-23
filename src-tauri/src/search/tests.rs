@@ -18,6 +18,7 @@ mod tests {
             result_type: ResultType::Application,
             score: 0,
             usage_bonus: 0.0,
+            pinned: false,
             action: SearchAction::LaunchApp {
                 path: "/app".into(),
             },

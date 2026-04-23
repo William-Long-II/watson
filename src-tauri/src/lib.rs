@@ -56,6 +56,15 @@ fn get_settings(state: State<AppState>) -> Settings {
 #[tauri::command]
 fn save_settings_cmd(settings: Settings, state: State<AppState>) -> Result<(), String> {
     config::save_settings(&settings)?;
+    // WAT-303: hot-reload clipboard ignore patterns so changes take
+    // effect on the next monitor tick without an app restart. Any
+    // compile errors are logged to stderr (silent on the happy path);
+    // the user sees them at the next startup via the banner.
+    let (patterns, errors) = clipboard::compile_ignore_patterns(&settings.clipboard.ignore_patterns);
+    if !errors.is_empty() {
+        eprintln!("watson: clipboard filter errors on save: {}", errors.join("; "));
+    }
+    state.clipboard.set_ignore_patterns(patterns);
     *state.settings.write().unwrap() = settings;
     Ok(())
 }
@@ -93,6 +102,7 @@ fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     result_type: ResultType::Note,
                     score: 10000,
                     usage_bonus: 0.0,
+                    pinned: false,
                     action: SearchAction::OpenNote { note_id: note.id },
                 })
                 .collect()
@@ -118,6 +128,7 @@ fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     result_type: ResultType::File,
                     score: 10000,
                     usage_bonus: 0.0,
+                    pinned: false,
                     action: SearchAction::OpenFile { path: file.path },
                 })
                 .collect()
@@ -147,6 +158,7 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
         result_type: ResultType::Calculation,
         score: 100000, // Above everything else; we've already short-circuited.
         usage_bonus: 0.0,
+        pinned: false,
         action: SearchAction::CopyClipboard { content: copy_value },
     }
 }
@@ -180,6 +192,7 @@ fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
             result_type: ResultType::SystemCommand,
             score: 5000,
             usage_bonus: 0.0,
+            pinned: false,
             action: SearchAction::RunCommand { command: cmd.id },
         })
         .collect()
@@ -219,6 +232,7 @@ fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
                     result_type: ResultType::Application,
                     score: 10000,
                     usage_bonus: 0.0,
+                    pinned: false,
                     action: SearchAction::LaunchApp { path: app.path.clone() },
                 },
             ));
@@ -238,6 +252,7 @@ fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
                     result_type: ResultType::File,
                     score: 10000,
                     usage_bonus: 0.0,
+                    pinned: false,
                     action: SearchAction::OpenFile { path: file.path },
                 },
             ));
@@ -264,11 +279,16 @@ fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<Search
         .map(|entry| SearchResult {
             id: entry.id,
             name: entry.preview.clone(),
-            description: format!("Copied {}", entry.timestamp.format("%H:%M:%S")),
+            description: if entry.pinned {
+                format!("📌 Pinned · Copied {}", entry.timestamp.format("%H:%M:%S"))
+            } else {
+                format!("Copied {}", entry.timestamp.format("%H:%M:%S"))
+            },
             icon: Some("clipboard".to_string()),
             result_type: ResultType::Clipboard,
             score: 10000,
             usage_bonus: 0.0,
+            pinned: entry.pinned,
             action: SearchAction::CopyClipboard { content: entry.content },
         })
         .collect()
@@ -315,6 +335,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 result_type: ResultType::WebSearch,
                 score: 10000,
                 usage_bonus: 0.0,
+                pinned: false,
                 action: SearchAction::OpenUrl { url },
             });
         }
@@ -346,6 +367,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 result_type: ResultType::Application,
                 score: 0,
                 usage_bonus: bonus,
+                pinned: false,
                 action: SearchAction::LaunchApp {
                     path: app.path.clone(),
                 },
@@ -434,6 +456,19 @@ fn clear_clipboard_history(state: State<AppState>) {
 #[tauri::command]
 fn copy_to_clipboard(content: String, state: State<AppState>) -> Result<(), String> {
     state.clipboard.copy_to_clipboard(&content)
+}
+
+/// WAT-303: mark a clipboard entry as pinned. Persists to DB; the pin
+/// survives `clear_clipboard_history` and app restarts.
+#[tauri::command]
+fn pin_clipboard_entry(id: String, state: State<AppState>) -> Result<bool, String> {
+    state.clipboard.pin(&id)
+}
+
+/// WAT-303: unpin a clipboard entry.
+#[tauri::command]
+fn unpin_clipboard_entry(id: String, state: State<AppState>) -> Result<bool, String> {
+    state.clipboard.unpin(&id)
 }
 
 #[tauri::command]
@@ -583,7 +618,13 @@ pub fn run() {
     let _ = apps::merge_stats_into_apps(&db, &mut indexed_apps);
 
     // Initialize clipboard manager
-    let clipboard = ClipboardManager::new(50); // Store last 50 entries
+    let clipboard = ClipboardManager::new(50, Arc::clone(&db)); // Store last 50 entries
+    // WAT-303: compile the user's ignore-pattern list. Bad regexes
+    // surface through the same startup-warnings channel as everything
+    // else; the good patterns still load.
+    let (ignore_patterns, pattern_errors) =
+        clipboard::compile_ignore_patterns(&settings.clipboard.ignore_patterns);
+    clipboard.set_ignore_patterns(ignore_patterns);
     clipboard.start_monitoring();
 
     // Initialize file search manager
@@ -600,6 +641,9 @@ pub fn run() {
     {
         startup_warnings.record_settings_from_newer_version(file_version, supported_version);
     }
+    // WAT-303: surface ignore-pattern compile errors through the same
+    // banner channel. Valid patterns already applied above.
+    startup_warnings.record_invalid_clipboard_filters(&pattern_errors);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -689,6 +733,8 @@ pub fn run() {
             search_clipboard,
             clear_clipboard_history,
             copy_to_clipboard,
+            pin_clipboard_entry,
+            unpin_clipboard_entry,
             get_scratchpad,
             set_scratchpad,
             clear_scratchpad,
