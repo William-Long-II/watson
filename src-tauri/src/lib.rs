@@ -17,6 +17,7 @@ use scratchpad::ScratchpadManager;
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::dispatch::{classify_prefix_route, match_web_search, Route, SubQuery, WebSearchMatch};
+use search::url_builder::build_web_search_url;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
 use std::sync::{Arc, RwLock};
 use tauri::{Manager, State};
@@ -145,28 +146,25 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
 
     let mut items: Vec<SearchResult> = Vec::new();
 
-    // Web search keyword match (pure classification in search::dispatch).
+    // Web search keyword match. Classification lives in search::dispatch;
+    // URL construction (scheme allowlist + {instance} validation + {query}
+    // encoding) lives in search::url_builder. A builder error (bad scheme,
+    // bad instance) silently skips the result — same policy as NeedsInstance.
     if let WebSearchMatch::Matched { index, subquery } =
         match_web_search(&query, &settings.web_searches)
     {
         let ws = &settings.web_searches[index];
-        let url = if ws.url.contains("{instance}") {
-            ws.url
-                .replace("{instance}", ws.instance.as_deref().unwrap_or(""))
-                .replace("{query}", &urlencoding::encode(&subquery))
-        } else {
-            ws.url.replace("{query}", &urlencoding::encode(&subquery))
-        };
-
-        items.push(SearchResult {
-            id: format!("web:{}", ws.keyword),
-            name: format!("{}: {}", ws.name, subquery),
-            description: "Web Search".to_string(),
-            icon: ws.icon.clone(),
-            result_type: ResultType::WebSearch,
-            score: 10000,
-            action: SearchAction::OpenUrl { url },
-        });
+        if let Ok(url) = build_web_search_url(&ws.url, ws.instance.as_deref(), &subquery) {
+            items.push(SearchResult {
+                id: format!("web:{}", ws.keyword),
+                name: format!("{}: {}", ws.name, subquery),
+                description: "Web Search".to_string(),
+                icon: ws.icon.clone(),
+                result_type: ResultType::WebSearch,
+                score: 10000,
+                action: SearchAction::OpenUrl { url },
+            });
+        }
     }
 
     // Check for system command prefix

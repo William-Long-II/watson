@@ -1,4 +1,5 @@
 pub mod dispatch;
+pub mod url_builder;
 
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;

@@ -130,13 +130,13 @@ Categories: TECH · SEC · PERF · DATA · BUS · OPS.
 | R-17 | TECH | `resize_window` uses fixed width 600; hardcoded | 1 | 1 | 1 | DOCUMENT |
 | R-18 | BUS | Icon cache is best-effort; stale icons after app upgrade | 2 | 1 | 2 | DOCUMENT |
 
-### Gate decision (today, pre-mitigation)
+### Gate decision (updated)
 
-- **Blockers (score=9):** 1 — R-01 (auto-update pipeline)
+- **Blockers (score=9):** 0 — R-01 mitigated by TA-01 (`.github/workflows/release-smoke.yml`, verified green against v1.3.0 on 2026-04-22). The MVP still stands; TA-01b (full updater round-trip via tauri-driver) remains outstanding but is not a blocker.
 - **Concerns (score 6–8):** 6 — R-02 through R-07
-- **Decision:** **FAIL → CONCERNS after mitigation plan accepted**
+- **Decision:** **CONCERNS** (was FAIL pre-TA-01)
 
-R-01 is classified BLOCK because the consequence is shipping to users' machines silently. It comes off BLOCK once a pipeline smoke test exists (see §5, TA-01).
+R-01 comes off BLOCK with the release-smoke workflow in place: every published release now has its manifest schema, artifact reachability, minisign signatures, and launch behavior verified before a failure can pass unnoticed. A smoke failure auto-files a tagged issue so rollback decisions aren't silent.
 
 ---
 
@@ -268,11 +268,9 @@ If I were sequencing the work for a solo maintainer (one sprint = one week):
 
 ## 9. Gate Recommendation
 
-**Current state: FAIL** (because R-01 auto-update risk has score 9 and no mitigation in place).
+**Current state: CONCERNS** (TA-01 landed and verified green against v1.3.0 on 2026-04-22; R-01 mitigated).
 
-**Mitigation path to CONCERNS:** accept TA-01 (release-smoke) as the R-01 mitigation plan with Will as owner, target completion before next minor release.
-
-**Path to PASS:** complete P0 test set (TA-01 through TA-05) and confirm all pass in CI for one full release cycle.
+**Path to PASS:** complete remaining P0 test set (TA-02 through TA-05) and confirm all pass in CI for one full release cycle. TA-01b (tauri-driver round-trip) can follow without blocking the PASS decision so long as the MVP smoke keeps catching manifest/signature/launch regressions.
 
 This is a standard single-maintainer OSS posture: the code is clean, the shipped features work, and the risk is concentrated in "no one will notice when something breaks" rather than "something is currently broken." A modest test investment moves the whole project from CONCERNS to PASS quickly.
 
