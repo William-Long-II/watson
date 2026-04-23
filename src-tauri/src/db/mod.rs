@@ -1,9 +1,16 @@
-pub mod schema;
+pub mod migrations;
 
 use directories::ProjectDirs;
-use rusqlite::{Connection, Result};
+use rusqlite::Connection;
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+/// Unified error for database operations. Migrations can fail with
+/// `rusqlite_migration::Error`, connection open/pragma operations with
+/// `rusqlite::Error`; boxing both lets the constructors stay on a single
+/// signature without introducing a custom enum.
+pub type DbResult<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -12,8 +19,8 @@ pub struct Database {
 impl Database {
     /// Open the production database in the user's platform-appropriate data dir.
     /// This is the only constructor that should be called from `run()`.
-    pub fn new() -> Result<Self> {
-        let path = get_db_path().expect("Could not determine database path");
+    pub fn new() -> DbResult<Self> {
+        let path = get_db_path().ok_or("could not determine database path")?;
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
@@ -24,8 +31,8 @@ impl Database {
 
     /// Open a database at an explicit path. Used by integration tests that
     /// need on-disk persistence but must not touch the real user data dir.
-    pub fn new_with_path(path: impl AsRef<Path>) -> Result<Self> {
-        let conn = Connection::open(path.as_ref())?;
+    pub fn new_with_path(path: impl AsRef<Path>) -> DbResult<Self> {
+        let mut conn = Connection::open(path.as_ref())?;
         // R-05 mitigation: WAL gives us safer crash recovery — a SIGKILL or
         // power loss mid-transaction leaves the DB file consistent (the WAL
         // journal is replayed on next open) instead of potentially corrupt
@@ -34,7 +41,11 @@ impl Database {
         // search-on-keystroke pattern. This is a one-time PRAGMA; SQLite
         // persists the choice in the DB file header.
         conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.execute_batch(schema::SCHEMA)?;
+        // R-02 mitigation: run the migration framework. Idempotent — legacy
+        // DBs that already have the tables (from the pre-migration
+        // execute_batch path) see the v1 baseline applied as a no-op and
+        // have user_version bumped to 1.
+        migrations::migrations().to_latest(&mut conn)?;
         Ok(Database {
             conn: Mutex::new(conn),
         })
@@ -44,22 +55,27 @@ impl Database {
     /// real SQLite surface but no filesystem. Dropping this `Database` drops
     /// all state — guaranteed isolation across `cargo test` workers.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        conn.execute_batch(schema::SCHEMA)?;
+    pub fn in_memory() -> DbResult<Self> {
+        let mut conn = Connection::open_in_memory()?;
+        migrations::migrations().to_latest(&mut conn)?;
         Ok(Database {
             conn: Mutex::new(conn),
         })
     }
 
-    pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<usize> {
+    pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> rusqlite::Result<usize> {
         let conn = self.conn.lock().unwrap();
         conn.execute(sql, params)
     }
 
-    pub fn query_map<T, F>(&self, sql: &str, params: &[&dyn rusqlite::ToSql], f: F) -> Result<Vec<T>>
+    pub fn query_map<T, F>(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::ToSql],
+        f: F,
+    ) -> rusqlite::Result<Vec<T>>
     where
-        F: FnMut(&rusqlite::Row<'_>) -> Result<T>,
+        F: FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
     {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(sql)?;
@@ -72,6 +88,7 @@ fn get_db_path() -> Option<PathBuf> {
     ProjectDirs::from("com", "watson", "Watson")
         .map(|dirs| dirs.data_dir().join("watson.db"))
 }
+
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AppEntry {
