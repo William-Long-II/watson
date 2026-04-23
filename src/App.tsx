@@ -10,6 +10,7 @@ import { Scratchpad } from './components/Scratchpad';
 import { NoteEditor } from './components/NoteEditor';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { SnippetsSettings } from './components/SnippetsSettings';
+import { ConfirmModal } from './components/ConfirmModal';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -172,6 +173,8 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [version, setVersion] = useState('');
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'none' | 'error'>('idle');
   const [updateError, setUpdateError] = useState('');
+  // WAT-405: confirm-modal state for Clear Clipboard History.
+  const [showClearClipboardConfirm, setShowClearClipboardConfirm] = useState(false);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -422,13 +425,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
               Re-index Applications
             </button>
             <button
-              onClick={async () => {
-                try {
-                  await invoke('clear_clipboard_history');
-                } catch (e) {
-                  console.error('Failed to clear clipboard:', e);
-                }
-              }}
+              onClick={() => setShowClearClipboardConfirm(true)}
               className="px-3 py-1.5 rounded-lg text-sm bg-[var(--input-bg)] hover:bg-[var(--selected)] transition-colors"
             >
               Clear Clipboard History
@@ -474,6 +471,23 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
           <p className="mt-2 text-gray-500">Watson v{version}</p>
         </div>
       </div>
+
+      <ConfirmModal
+        open={showClearClipboardConfirm}
+        title="Clear clipboard history?"
+        message="This removes all unpinned clipboard entries. Pinned entries are kept."
+        confirmLabel="Clear"
+        variant="danger"
+        onConfirm={async () => {
+          setShowClearClipboardConfirm(false);
+          try {
+            await invoke('clear_clipboard_history');
+          } catch (e) {
+            console.error('Failed to clear clipboard:', e);
+          }
+        }}
+        onCancel={() => setShowClearClipboardConfirm(false)}
+      />
     </div>
   );
 }

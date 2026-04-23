@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../stores/app';
 import { renderMarkdown } from '../lib/markdown';
+import { ConfirmModal } from './ConfirmModal';
 
 export function NoteEditor() {
   const { currentNote, createNote, updateNote, deleteNote, closeNoteEditor, reloadNoteFromDisk } =
@@ -13,6 +14,7 @@ export function NoteEditor() {
   // because preview mode is a viewing preference, not a persisted one —
   // reopening a note always starts in edit mode.
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
@@ -70,10 +72,16 @@ export function NoteEditor() {
     }
   };
 
-  const handleDelete = async () => {
+  const requestDelete = () => {
     if (currentNote) {
-      await deleteNote(currentNote.id);
+      setShowDeleteConfirm(true);
     }
+  };
+
+  const confirmDelete = async () => {
+    if (!currentNote) return;
+    setShowDeleteConfirm(false);
+    await deleteNote(currentNote.id);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -112,7 +120,7 @@ export function NoteEditor() {
           </button>
           {currentNote && (
             <button
-              onClick={handleDelete}
+              onClick={requestDelete}
               className="px-2 py-1 text-xs text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
             >
               Delete
@@ -213,6 +221,16 @@ export function NoteEditor() {
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        open={showDeleteConfirm}
+        title="Delete this note?"
+        message="This can't be undone — the note and its on-disk .md file will both be removed."
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

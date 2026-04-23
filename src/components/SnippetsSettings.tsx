@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Snippet } from '../types';
+import { ConfirmModal } from './ConfirmModal';
 
 /**
  * WAT-301: Settings section for managing text snippets.
@@ -14,6 +15,9 @@ export function SnippetsSettings() {
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [editing, setEditing] = useState<Snippet | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  // WAT-405: confirm before deleting a snippet so stray clicks don't
+  // wipe an expansion the user has been maintaining for weeks.
+  const [deletingSnippet, setDeletingSnippet] = useState<Snippet | null>(null);
 
   const refresh = async () => {
     try {
@@ -48,7 +52,14 @@ export function SnippetsSettings() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const requestDelete = (snippet: Snippet) => {
+    setDeletingSnippet(snippet);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingSnippet) return;
+    const id = deletingSnippet.id;
+    setDeletingSnippet(null);
     try {
       await invoke('delete_snippet', { id });
       setEditing(null);
@@ -94,7 +105,7 @@ export function SnippetsSettings() {
               snippet={s}
               onSave={handleSave}
               onCancel={() => setEditing(null)}
-              onDelete={() => handleDelete(s.id)}
+              onDelete={() => requestDelete(s)}
             />
           ) : (
             <div
@@ -123,6 +134,20 @@ export function SnippetsSettings() {
           <p className="text-xs text-gray-400 italic">No snippets yet &mdash; add one to get started.</p>
         )}
       </div>
+
+      <ConfirmModal
+        open={deletingSnippet !== null}
+        title="Delete this snippet?"
+        message={
+          deletingSnippet
+            ? `"${deletingSnippet.trigger}" — ${deletingSnippet.name} — will be removed. This can't be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeletingSnippet(null)}
+      />
     </div>
   );
 }
