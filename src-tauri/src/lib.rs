@@ -185,6 +185,73 @@ fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
         .collect()
 }
 
+/// WAT-304: build the empty-query default view — up to 5 recently-launched
+/// apps + up to 5 recently-opened files, interleaved by timestamp so the
+/// most recently touched item comes first regardless of kind. Returns an
+/// empty vec on a fresh install (no launches or opens yet); the UI then
+/// falls back to its quick-tips placeholder.
+fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
+    const PER_KIND: usize = 5;
+    const TOTAL_LIMIT: usize = 10;
+
+    // Collect (timestamp, result) pairs so the final sort is a single
+    // pass over both kinds.
+    let mut combined: Vec<(i64, SearchResult)> = Vec::with_capacity(PER_KIND * 2);
+
+    // Recent apps — filter to those actually launched (count > 0 AND
+    // timestamp present). Sort by last_launched desc and take top N.
+    {
+        let apps = state.indexed_apps.read().unwrap();
+        let mut launched: Vec<&AppEntry> = apps
+            .iter()
+            .filter(|a| a.launch_count > 0 && a.last_launched.is_some())
+            .collect();
+        launched.sort_by(|a, b| b.last_launched.cmp(&a.last_launched));
+        for app in launched.into_iter().take(PER_KIND) {
+            let ts = app.last_launched.unwrap_or(0);
+            combined.push((
+                ts,
+                SearchResult {
+                    id: app.id.clone(),
+                    name: app.name.clone(),
+                    description: "Recently launched".to_string(),
+                    icon: app.icon_cache_path.clone(),
+                    result_type: ResultType::Application,
+                    score: 10000,
+                    usage_bonus: 0.0,
+                    action: SearchAction::LaunchApp { path: app.path.clone() },
+                },
+            ));
+        }
+    }
+
+    // Recent files — already sorted in SQL.
+    if let Ok(files) = state.file_search.get_recent_opened(PER_KIND) {
+        for (file, ts) in files {
+            combined.push((
+                ts,
+                SearchResult {
+                    id: file.id,
+                    name: file.name,
+                    description: format!("Recently opened · {}", file.path),
+                    icon: Some("file".to_string()),
+                    result_type: ResultType::File,
+                    score: 10000,
+                    usage_bonus: 0.0,
+                    action: SearchAction::OpenFile { path: file.path },
+                },
+            ));
+        }
+    }
+
+    combined.sort_by(|a, b| b.0.cmp(&a.0));
+    combined
+        .into_iter()
+        .take(TOTAL_LIMIT)
+        .map(|(_, r)| r)
+        .collect()
+}
+
 fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
     let entries = match sub {
         SubQuery::Listing => state.clipboard.get_history(),
@@ -218,7 +285,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
     }
 
     match classify_prefix_route(&query) {
-        Route::Empty => return vec![],
+        Route::Empty => return recents_results(&state),
         Route::Notes(sub) => return notes_route_results(&state, sub),
         Route::Files(sub) => return files_route_results(&state, sub),
         Route::Clipboard(sub) => return clipboard_route_results(&state, sub),
@@ -323,6 +390,10 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             Ok(())
         }
         SearchAction::OpenFile { path } => {
+            // WAT-304: record open before invoking the OS so stats
+            // reflect user intent even if the OS-level open fails.
+            // Failure to record is non-fatal — the open proceeds.
+            let _ = state.file_search.record_open(&path);
             open::that(&path).map_err(|e| e.to_string())
         }
     }

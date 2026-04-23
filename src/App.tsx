@@ -452,12 +452,16 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 }
 
 function App() {
-  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible, loadReservedPrefixes } = useAppStore();
+  const { loadSettings, reindexApps, settings, showSettings, setShowSettings, resizeWindow, scratchpadVisible, noteEditorVisible, loadReservedPrefixes, setQuery } = useAppStore();
 
   useEffect(() => {
     loadSettings();
     reindexApps();
     loadReservedPrefixes();
+    // WAT-304: populate the empty-query recents carousel on first paint
+    // so the user doesn't have to type anything to see their recent apps
+    // and files. Fires the same code path as clearing an existing query.
+    setQuery('');
     resizeWindow(); // Set initial window size
 
     // Disable default context menu

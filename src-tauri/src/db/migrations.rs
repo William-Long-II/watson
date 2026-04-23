@@ -32,6 +32,10 @@ pub fn migrations() -> Migrations<'static> {
         // survive indexer runs and can be merged into the in-memory
         // `Vec<AppEntry>` cache on demand.
         M::up(SCHEMA_V002),
+        // 003 — WAT-304 file open stats. Same pattern as app_launches:
+        // a path-keyed side table so reindex doesn't clobber open
+        // history and we don't have to persist every file row's stats.
+        M::up(SCHEMA_V003),
     ])
 }
 
@@ -113,6 +117,15 @@ CREATE TABLE IF NOT EXISTS app_launches (
 );
 "#;
 
+const SCHEMA_V003: &str = r#"
+CREATE TABLE IF NOT EXISTS file_opens (
+    path TEXT PRIMARY KEY,
+    open_count INTEGER NOT NULL DEFAULT 0,
+    last_opened_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_opens_last_opened ON file_opens(last_opened_at);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,7 +149,7 @@ mod tests {
             .unwrap();
         // Bump this expectation whenever a new migration is appended
         // to `migrations()`.
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -148,7 +161,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, 3);
     }
 
     #[test]
@@ -170,7 +183,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 2);
+        assert_eq!(post, 3);
     }
 
     #[test]
@@ -186,6 +199,7 @@ mod tests {
             "files",
             "scratchpad",
             "app_launches",
+            "file_opens",
         ] {
             let exists: i64 = conn
                 .query_row(

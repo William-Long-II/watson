@@ -150,6 +150,55 @@ impl FileSearchManager {
             )
             .map_err(|e| e.to_string())
     }
+
+    /// WAT-304: record that a file was opened. Upserts the `file_opens`
+    /// side table — keeps the stats decoupled from the indexer's
+    /// insert/replace loop so reindex doesn't wipe open history.
+    pub fn record_open(&self, path: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "INSERT INTO file_opens (path, open_count, last_opened_at) VALUES (?, 1, ?)
+                 ON CONFLICT(path) DO UPDATE SET
+                    open_count = open_count + 1,
+                    last_opened_at = excluded.last_opened_at",
+                &[&path, &Utc::now().timestamp()],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// WAT-304: return the most recently opened files joined with their
+    /// current index entry. Files that have been opened but later
+    /// removed from the index (deleted on disk, indexer not re-run)
+    /// drop out — recents reflects "files Watson still knows about".
+    /// Returns `(entry, last_opened_at)` tuples so the caller can
+    /// interleave with app recents by timestamp.
+    pub fn get_recent_opened(&self, limit: usize) -> Result<Vec<(FileEntry, i64)>, String> {
+        self.db
+            .query_map(
+                "SELECT f.id, f.name, f.path, f.extension, f.size_bytes, f.modified_at,
+                        o.last_opened_at
+                 FROM file_opens o
+                 JOIN files f ON f.path = o.path
+                 ORDER BY o.last_opened_at DESC
+                 LIMIT ?",
+                &[&(limit as i64)],
+                |row| {
+                    Ok((
+                        FileEntry {
+                            id: row.get(0)?,
+                            name: row.get(1)?,
+                            path: row.get(2)?,
+                            extension: row.get(3)?,
+                            size_bytes: row.get(4)?,
+                            modified_at: row.get(5)?,
+                        },
+                        row.get(6)?,
+                    ))
+                },
+            )
+            .map_err(|e| e.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -385,5 +434,118 @@ mod tests {
         let handle = mgr.cancel_flag();
         mgr.request_cancel();
         assert!(handle.load(Ordering::Relaxed));
+    }
+
+    // --- WAT-304: file open stats ---
+
+    fn inserted_mgr_with(files: &[FileEntry]) -> FileSearchManager {
+        let mgr = manager();
+        for f in files {
+            mgr.insert(f).unwrap();
+        }
+        mgr
+    }
+
+    #[test]
+    fn record_open_creates_row_on_first_call() {
+        let mgr = inserted_mgr_with(&[entry("f:1", "a.md", "/a.md", "md", 100)]);
+        mgr.record_open("/a.md").unwrap();
+        let opens: i32 = mgr
+            .db
+            .query_map(
+                "SELECT open_count FROM file_opens WHERE path = ?",
+                &[&"/a.md"],
+                |r| r.get(0),
+            )
+            .unwrap()[0];
+        assert_eq!(opens, 1);
+    }
+
+    #[test]
+    fn record_open_increments_count_on_subsequent_calls() {
+        let mgr = inserted_mgr_with(&[entry("f:1", "a.md", "/a.md", "md", 100)]);
+        mgr.record_open("/a.md").unwrap();
+        mgr.record_open("/a.md").unwrap();
+        mgr.record_open("/a.md").unwrap();
+        let opens: i32 = mgr
+            .db
+            .query_map(
+                "SELECT open_count FROM file_opens WHERE path = ?",
+                &[&"/a.md"],
+                |r| r.get(0),
+            )
+            .unwrap()[0];
+        assert_eq!(opens, 3);
+    }
+
+    #[test]
+    fn record_open_stamps_last_opened_to_roughly_now() {
+        let mgr = inserted_mgr_with(&[entry("f:1", "a.md", "/a.md", "md", 100)]);
+        let before = Utc::now().timestamp();
+        mgr.record_open("/a.md").unwrap();
+        let after = Utc::now().timestamp();
+
+        let last: i64 = mgr
+            .db
+            .query_map(
+                "SELECT last_opened_at FROM file_opens WHERE path = ?",
+                &[&"/a.md"],
+                |r| r.get(0),
+            )
+            .unwrap()[0];
+        assert!(last >= before && last <= after);
+    }
+
+    #[test]
+    fn get_recent_opened_returns_empty_when_no_opens() {
+        let mgr = inserted_mgr_with(&[entry("f:1", "a.md", "/a.md", "md", 100)]);
+        assert!(mgr.get_recent_opened(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_recent_opened_orders_by_last_opened_desc() {
+        // Three files opened in a deterministic order; recents come
+        // back newest-first. Uses manual sleeps to force distinct
+        // timestamps rather than relying on insertion order.
+        let mgr = inserted_mgr_with(&[
+            entry("f:1", "a.md", "/a.md", "md", 0),
+            entry("f:2", "b.md", "/b.md", "md", 0),
+            entry("f:3", "c.md", "/c.md", "md", 0),
+        ]);
+        mgr.record_open("/a.md").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        mgr.record_open("/b.md").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        mgr.record_open("/c.md").unwrap();
+
+        let recents = mgr.get_recent_opened(10).unwrap();
+        assert_eq!(recents.len(), 3);
+        assert_eq!(recents[0].0.id, "f:3", "newest open first");
+        assert_eq!(recents[2].0.id, "f:1", "oldest open last");
+    }
+
+    #[test]
+    fn get_recent_opened_respects_limit() {
+        let mgr = inserted_mgr_with(&[
+            entry("f:1", "a.md", "/a.md", "md", 0),
+            entry("f:2", "b.md", "/b.md", "md", 0),
+        ]);
+        mgr.record_open("/a.md").unwrap();
+        mgr.record_open("/b.md").unwrap();
+        assert_eq!(mgr.get_recent_opened(1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn get_recent_opened_drops_files_missing_from_index() {
+        // If a file was opened then later removed from the index
+        // (deleted from disk, indexer re-run), it should drop out of
+        // recents rather than surfacing a phantom entry.
+        let mgr = inserted_mgr_with(&[entry("f:1", "a.md", "/a.md", "md", 0)]);
+        mgr.record_open("/a.md").unwrap();
+        mgr.record_open("/gone.md").unwrap(); // path not in files table
+
+        let recents = mgr.get_recent_opened(10).unwrap();
+        assert_eq!(recents.len(), 1);
+        assert_eq!(recents[0].0.path, "/a.md");
     }
 }
