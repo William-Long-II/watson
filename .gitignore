@@ -22,6 +22,9 @@ npm-debug.log*
 # Claude images (screenshots for debugging)
 claude_images/
 
+# Claude Code per-user tooling config
+.claude/
+
 # Signing keys (NEVER commit these!)
 *.key
 *.key.pub
