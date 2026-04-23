@@ -9,6 +9,7 @@ mod indexers;
 mod notes;
 mod scratchpad;
 mod search;
+mod snippets;
 mod warnings;
 
 use actions::system::{execute_command, get_system_commands};
@@ -17,6 +18,7 @@ use config::settings::Settings;
 use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
 use notes::NotesManager;
 use scratchpad::ScratchpadManager;
+use snippets::SnippetsManager;
 use warnings::{StartupWarning, StartupWarnings};
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
@@ -42,6 +44,9 @@ struct AppState {
     scratchpad: ScratchpadManager,
     notes: NotesManager,
     file_search: Arc<FileSearchManager>,
+    /// WAT-301: user-defined text snippets. Surface in search; on
+    /// execute, copy expansion and paste into the prior-focused window.
+    snippets: SnippetsManager,
     /// WAT-105: non-fatal conditions that surfaced during `setup()` and
     /// should be rendered in the UI — e.g., the global hotkey couldn't be
     /// registered because another app already owns it.
@@ -160,6 +165,19 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
         usage_bonus: 0.0,
         pinned: false,
         action: SearchAction::CopyClipboard { content: copy_value },
+    }
+}
+
+/// WAT-301: first-line preview of a snippet's expansion for the
+/// description row. Collapses multi-line expansions into a single
+/// line and truncates with an ellipsis so long snippets still fit.
+fn snippet_preview(expansion: &str) -> String {
+    let first_line = expansion.lines().next().unwrap_or("");
+    let clipped: String = first_line.chars().take(80).collect();
+    if first_line.chars().count() > 80 || expansion.contains('\n') {
+        format!("{clipped}…")
+    } else {
+        clipped
     }
 }
 
@@ -346,6 +364,30 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
     // fuzzy match over apps + web searches only, so `sleep` (no prefix)
     // still surfaces a matching app but never a SystemCommand result.
 
+    // WAT-301: add snippets whose trigger/name matches the query. Runs
+    // as a regular search-pipeline contributor alongside apps and web —
+    // no special prefix. Users who want scoped lookup can use a
+    // `;`-prefixed trigger by convention.
+    if let Ok(snippets) = state.snippets.search(&query) {
+        for snippet in snippets {
+            items.push(SearchResult {
+                // Highlight the trigger so the user can see how they'd
+                // type next time without opening Settings.
+                id: snippet.id.clone(),
+                name: format!("{}  —  {}", snippet.trigger, snippet.name),
+                description: snippet_preview(&snippet.expansion),
+                icon: Some("snippet".to_string()),
+                result_type: ResultType::Snippet,
+                // Between web (10000) and apps (0) so snippets surface
+                // reliably when triggered but don't swamp app matches.
+                score: 8000,
+                usage_bonus: 0.0,
+                pinned: false,
+                action: SearchAction::PasteSnippet { expansion: snippet.expansion },
+            });
+        }
+    }
+
     // Add apps
     if !query.contains(' ') || items.is_empty() {
         // WAT-201: compute the usage bonus once for the whole loop; `now`
@@ -418,6 +460,67 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             let _ = state.file_search.record_open(&path);
             open::that(&path).map_err(|e| e.to_string())
         }
+        SearchAction::PasteSnippet { expansion } => {
+            // WAT-301: two steps. (1) Put the expansion on the
+            // clipboard — this alone is useful even if step 2 fails.
+            // (2) Synthesize Ctrl/Cmd+V into the prior-focused window.
+            // The frontend hides Watson before calling us, so focus
+            // has returned to wherever the user was typing.
+            state.clipboard.copy_to_clipboard(&expansion)?;
+            paste_snippet_via_os()
+        }
+    }
+}
+
+/// WAT-301: platform shim for synthesizing a paste keystroke.
+/// Windows uses PowerShell SendKeys (same lever as WAT-302). macOS
+/// uses osascript System Events. Linux is best-effort via xdotool;
+/// if xdotool isn't installed, the expansion is still on the
+/// clipboard and the user can paste manually.
+#[cfg(target_os = "windows")]
+fn paste_snippet_via_os() -> Result<(), String> {
+    // A tiny start-sleep gives the previously-focused window time to
+    // fully regain focus after Watson hides. SendKeys fires Ctrl+V.
+    std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            "Start-Sleep -Milliseconds 80; (New-Object -ComObject WScript.Shell).SendKeys('^v')",
+        ])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn paste_snippet_via_os() -> Result<(), String> {
+    std::process::Command::new("osascript")
+        .args([
+            "-e",
+            "delay 0.08",
+            "-e",
+            r#"tell application "System Events" to keystroke "v" using command down"#,
+        ])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn paste_snippet_via_os() -> Result<(), String> {
+    // Linux best-effort. `xdotool` is widely available but not
+    // guaranteed; if it's missing, the snippet is already on the
+    // clipboard so the user can paste manually (Ctrl+V).
+    match std::process::Command::new("xdotool")
+        .args(["key", "--clearmodifiers", "ctrl+v"])
+        .spawn()
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!(
+            "Could not synthesize paste (xdotool not found: {e}). The snippet is on your clipboard — press Ctrl+V manually."
+        )),
     }
 }
 
@@ -570,6 +673,39 @@ fn clear_file_index(state: State<AppState>) -> Result<(), String> {
     state.file_search.clear_all()
 }
 
+// --- WAT-301: snippet CRUD ---
+
+#[tauri::command]
+fn list_snippets(state: State<AppState>) -> Result<Vec<snippets::Snippet>, String> {
+    state.snippets.list()
+}
+
+#[tauri::command]
+fn create_snippet(
+    trigger: String,
+    name: String,
+    expansion: String,
+    state: State<AppState>,
+) -> Result<snippets::Snippet, String> {
+    state.snippets.create(&trigger, &name, &expansion)
+}
+
+#[tauri::command]
+fn update_snippet(
+    id: String,
+    trigger: String,
+    name: String,
+    expansion: String,
+    state: State<AppState>,
+) -> Result<snippets::Snippet, String> {
+    state.snippets.update(&id, &trigger, &name, &expansion)
+}
+
+#[tauri::command]
+fn delete_snippet(id: String, state: State<AppState>) -> Result<(), String> {
+    state.snippets.delete(&id)
+}
+
 /// WAT-105: frontend calls this on mount to render a banner for any
 /// non-fatal conditions that surfaced during app setup.
 #[tauri::command]
@@ -659,6 +795,7 @@ pub fn run() {
             scratchpad,
             notes,
             file_search,
+            snippets: SnippetsManager::new(Arc::clone(&db)),
             startup_warnings,
         })
         .setup(|app| {
@@ -751,6 +888,10 @@ pub fn run() {
             reindex_files,
             cancel_reindex_files,
             clear_file_index,
+            list_snippets,
+            create_snippet,
+            update_snippet,
+            delete_snippet,
             get_startup_warnings,
             dismiss_startup_warning,
             open_config_folder,

@@ -34,6 +34,7 @@ A fast, cross-platform productivity launcher inspired by Alfred. Built with Taur
 | `cb <query>` | Search clipboard history |
 | `> <command>` | Run system command |
 | `>left` / `>right` / `>max` / `>center` | Window management (Windows only in v1) |
+| `;addr`, `;sig`, &hellip; | Snippets — type a trigger, paste the expansion into the focused app |
 | `12 * 37` | Inline arithmetic — `sqrt(144)`, `(1+2)^3`, etc. |
 | `30 C to F` | Unit conversion — temperature / length / weight |
 | `100 USD to EUR` | Currency conversion (offline, snapshotted rates) |

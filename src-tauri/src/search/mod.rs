@@ -50,6 +50,10 @@ pub enum ResultType {
     /// WAT-203: inline calculation result (arithmetic, unit conversion,
     /// currency). The action is always `CopyClipboard { content: result }`.
     Calculation,
+    /// WAT-301: user-defined text snippet. The action is always
+    /// `PasteSnippet { expansion }` — copy to clipboard then synthesize
+    /// a paste into the prior-focused window.
+    Snippet,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +65,9 @@ pub enum SearchAction {
     CopyClipboard { content: String },
     OpenNote { note_id: String },
     OpenFile { path: String },
+    /// WAT-301: copy `expansion` to the clipboard and synthesize a
+    /// paste into the prior-focused window.
+    PasteSnippet { expansion: String },
 }
 
 pub struct SearchEngine {
