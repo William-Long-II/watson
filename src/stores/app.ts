@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import type { SearchResult, Settings, Scratchpad, Note } from '../types';
+import type { SearchResult, Settings, Scratchpad, Note, StartupWarning } from '../types';
 
 interface AppState {
   query: string;
@@ -13,6 +13,7 @@ interface AppState {
   scratchpadVisible: boolean;
   currentNote: Note | null;
   noteEditorVisible: boolean;
+  startupWarnings: StartupWarning[];
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -35,6 +36,8 @@ interface AppState {
   closeNoteEditor: () => void;
   openNewNote: () => void;
   reindexFiles: () => Promise<number>;
+  loadStartupWarnings: () => Promise<void>;
+  dismissStartupWarning: (id: string) => Promise<void>;
 }
 
 // Height constants
@@ -58,6 +61,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scratchpadVisible: false,
   currentNote: null,
   noteEditorVisible: false,
+  startupWarnings: [],
 
   setQuery: async (query: string) => {
     set({ query, selectedIndex: 0 });
@@ -278,6 +282,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error('Failed to reindex files:', e);
       return 0;
+    }
+  },
+
+  loadStartupWarnings: async () => {
+    try {
+      const warnings = await invoke<StartupWarning[]>('get_startup_warnings');
+      set({ startupWarnings: warnings });
+    } catch (e) {
+      console.error('Failed to load startup warnings:', e);
+    }
+  },
+
+  dismissStartupWarning: async (id: string) => {
+    // Optimistic update: remove locally first so the banner doesn't linger
+    // while we await the backend confirmation.
+    set({ startupWarnings: get().startupWarnings.filter((w) => w.id !== id) });
+    try {
+      await invoke('dismiss_startup_warning', { id });
+    } catch (e) {
+      console.error('Failed to dismiss startup warning:', e);
     }
   },
 }));

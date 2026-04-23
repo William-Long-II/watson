@@ -97,3 +97,11 @@ export interface FileSearchSettings {
   excluded_patterns: string[];
   max_depth: number;
 }
+
+export type StartupWarningKind = 'shortcut_unavailable';
+
+export interface StartupWarning {
+  id: string;
+  kind: StartupWarningKind;
+  message: string;
+}

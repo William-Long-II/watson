@@ -8,6 +8,7 @@ import { SearchBar } from './components/SearchBar';
 import { ResultsList } from './components/ResultsList';
 import { Scratchpad } from './components/Scratchpad';
 import { NoteEditor } from './components/NoteEditor';
+import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -456,6 +457,8 @@ function App() {
         </div>
         <SettingsIcon onClick={() => setShowSettings(!showSettings)} />
       </div>
+
+      <StartupWarningBanner onOpenSettings={() => setShowSettings(true)} />
 
       <SearchBar />
 

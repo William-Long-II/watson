@@ -7,6 +7,7 @@ mod indexers;
 mod notes;
 mod scratchpad;
 mod search;
+mod warnings;
 
 use actions::system::{execute_command, get_system_commands};
 use clipboard::ClipboardManager;
@@ -14,6 +15,7 @@ use config::settings::Settings;
 use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
 use notes::NotesManager;
 use scratchpad::ScratchpadManager;
+use warnings::{StartupWarning, StartupWarnings};
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::dispatch::{classify_prefix_route, match_web_search, Route, SubQuery, WebSearchMatch};
@@ -38,6 +40,10 @@ struct AppState {
     scratchpad: ScratchpadManager,
     notes: NotesManager,
     file_search: Arc<FileSearchManager>,
+    /// WAT-105: non-fatal conditions that surfaced during `setup()` and
+    /// should be rendered in the UI — e.g., the global hotkey couldn't be
+    /// registered because another app already owns it.
+    startup_warnings: StartupWarnings,
 }
 
 #[tauri::command]
@@ -368,6 +374,20 @@ fn clear_file_index(state: State<AppState>) -> Result<(), String> {
     state.file_search.clear_all()
 }
 
+/// WAT-105: frontend calls this on mount to render a banner for any
+/// non-fatal conditions that surfaced during app setup.
+#[tauri::command]
+fn get_startup_warnings(state: State<AppState>) -> Vec<StartupWarning> {
+    state.startup_warnings.list()
+}
+
+/// WAT-105: dismiss a specific warning by id. Returns true if something was
+/// removed; dismissing an unknown id is not an error (UI may race backend).
+#[tauri::command]
+fn dismiss_startup_warning(id: String, state: State<AppState>) -> bool {
+    state.startup_warnings.dismiss(&id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
@@ -403,15 +423,24 @@ pub fn run() {
             scratchpad,
             notes,
             file_search,
+            startup_warnings: StartupWarnings::new(),
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
 
             // Register global shortcut (Alt+Space)
+            // WAT-105 / R-11: registration can fail (hotkey already bound
+            // by another app, platform restriction, no keyboard daemon on
+            // some Linux WMs). Historically `?` here aborted Tauri setup
+            // entirely, leaving the user with a window that silently
+            // didn't respond to the hotkey. Now: capture the error as a
+            // startup warning and keep launching so the user can open the
+            // app via the tray or CLI and rebind.
             let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
+            let hotkey_label = "Alt+Space";
             let hotkey_window = window.clone();
 
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+            if let Err(e) = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
                 if event.state == ShortcutState::Pressed {
                     if hotkey_window.is_visible().unwrap_or(false) {
                         hotkey_window.hide().ok();
@@ -420,7 +449,13 @@ pub fn run() {
                         hotkey_window.set_focus().ok();
                     }
                 }
-            })?;
+            }) {
+                eprintln!("watson: failed to register hotkey {hotkey_label}: {e}");
+                let state: State<AppState> = app.state();
+                state
+                    .startup_warnings
+                    .record_shortcut_unavailable(hotkey_label, &e.to_string());
+            }
 
             // Create system tray (macOS and Windows only - Linux requires appindicator)
             #[cfg(not(target_os = "linux"))]
@@ -476,7 +511,9 @@ pub fn run() {
             get_recent_files,
             reindex_files,
             cancel_reindex_files,
-            clear_file_index
+            clear_file_index,
+            get_startup_warnings,
+            dismiss_startup_warning
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
