@@ -3,7 +3,7 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet';
   score: number;
   /** WAT-303: populated only for clipboard results; true when pinned. */
   pinned?: boolean;
@@ -16,7 +16,17 @@ export type SearchAction =
   | { type: 'run_command'; command: string }
   | { type: 'copy_clipboard'; content: string }
   | { type: 'open_note'; note_id: string }
-  | { type: 'open_file'; path: string };
+  | { type: 'open_file'; path: string }
+  | { type: 'paste_snippet'; expansion: string };
+
+export interface Snippet {
+  id: string;
+  trigger: string;
+  name: string;
+  expansion: string;
+  created_at: number;
+  modified_at: number;
+}
 
 export interface Settings {
   general: GeneralSettings;

@@ -41,6 +41,11 @@ pub fn migrations() -> Migrations<'static> {
         // pinned entries get the cost of a DB row. Clear-history
         // preserves pins in memory and on disk.
         M::up(SCHEMA_V004),
+        // 005 — WAT-301 snippets / text expansion. User-defined
+        // keyword → expansion pairs that surface alongside other
+        // search items; executing a snippet copies its expansion to
+        // the clipboard and pastes into the prior-focused window.
+        M::up(SCHEMA_V005),
     ])
 }
 
@@ -141,6 +146,18 @@ CREATE TABLE IF NOT EXISTS clipboard_pins (
 CREATE INDEX IF NOT EXISTS idx_clipboard_pins_pinned_at ON clipboard_pins(pinned_at);
 "#;
 
+const SCHEMA_V005: &str = r#"
+CREATE TABLE IF NOT EXISTS snippets (
+    id TEXT PRIMARY KEY,
+    trigger TEXT NOT NULL,
+    name TEXT NOT NULL,
+    expansion TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    modified_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_snippets_trigger ON snippets(trigger);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,7 +181,7 @@ mod tests {
             .unwrap();
         // Bump this expectation whenever a new migration is appended
         // to `migrations()`.
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -176,7 +193,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 4);
+        assert_eq!(version, 5);
     }
 
     #[test]
@@ -198,7 +215,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 4);
+        assert_eq!(post, 5);
     }
 
     #[test]
@@ -216,6 +233,7 @@ mod tests {
             "app_launches",
             "file_opens",
             "clipboard_pins",
+            "snippets",
         ] {
             let exists: i64 = conn
                 .query_row(

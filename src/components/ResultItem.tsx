@@ -115,6 +115,19 @@ function FileIcon() {
   );
 }
 
+function SnippetIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-400 to-violet-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="8" y1="13" x2="16" y2="13" />
+        <line x1="8" y1="17" x2="16" y2="17" />
+      </svg>
+    </div>
+  );
+}
+
 function CalculatorIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center">
@@ -163,6 +176,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <FileIcon />;
       case 'calculation':
         return <CalculatorIcon />;
+      case 'snippet':
+        return <SnippetIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -184,6 +199,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'File';
       case 'calculation':
         return 'Calc';
+      case 'snippet':
+        return 'Snip';
       default:
         return '';
     }

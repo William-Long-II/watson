@@ -9,6 +9,7 @@ import { ResultsList } from './components/ResultsList';
 import { Scratchpad } from './components/Scratchpad';
 import { NoteEditor } from './components/NoteEditor';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
+import { SnippetsSettings } from './components/SnippetsSettings';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -383,6 +384,10 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
+
+        {/* WAT-301: snippets CRUD lives in its own component to keep
+            this file readable. */}
+        <SnippetsSettings />
 
         {/* WAT-303: clipboard privacy filter */}
         <div>
