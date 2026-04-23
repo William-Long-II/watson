@@ -42,6 +42,16 @@ pub struct SearchEngine {
     matcher: SkimMatcherV2,
 }
 
+/// WAT-202 / R-09: description-only matches ranked below name matches.
+///
+/// When a query matches an item's description but not its name, we still
+/// want to surface it (previous behavior silently dropped the item). A
+/// 50% multiplier on the description score keeps the relative ordering
+/// within description-only hits while pushing them beneath any name hit
+/// of comparable quality. The exact value isn't load-bearing — it just
+/// has to be <100% so that name-vs-description ties favor the name.
+const DESCRIPTION_SCORE_PENALTY_PERCENT: i64 = 50;
+
 impl SearchEngine {
     pub fn new() -> Self {
         SearchEngine {
@@ -53,11 +63,23 @@ impl SearchEngine {
         self.matcher.fuzzy_match(target, query)
     }
 
+    /// Score an item against the query, considering both `name` and
+    /// `description`. Returns the best of the two (with description
+    /// penalized) or `None` if neither matches.
+    fn score_item(&self, query: &str, name: &str, description: &str) -> Option<i64> {
+        let name_score = self.score(query, name);
+        let description_score = self
+            .score(query, description)
+            .map(|s| s * DESCRIPTION_SCORE_PENALTY_PERCENT / 100);
+        // Option::max returns the higher variant; Some(x).max(None) == Some(x).
+        name_score.max(description_score)
+    }
+
     pub fn search(&self, query: &str, items: Vec<SearchResult>) -> Vec<SearchResult> {
         let mut results: Vec<(SearchResult, i64)> = items
             .into_iter()
             .filter_map(|mut item| {
-                self.score(query, &item.name).map(|score| {
+                self.score_item(query, &item.name, &item.description).map(|score| {
                     item.score = score;
                     (item, score)
                 })
