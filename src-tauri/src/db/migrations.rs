@@ -27,6 +27,11 @@ pub fn migrations() -> Migrations<'static> {
         // DBs have all these tables already; IF NOT EXISTS makes the run a
         // no-op). Fresh installs get the full schema on first migrate.
         M::up(SCHEMA_V001),
+        // 002 — WAT-201 app launch stats. A separate table keyed by path
+        // so we don't have to persist every indexed app row — the stats
+        // survive indexer runs and can be merged into the in-memory
+        // `Vec<AppEntry>` cache on demand.
+        M::up(SCHEMA_V002),
     ])
 }
 
@@ -100,6 +105,14 @@ CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
 CREATE INDEX IF NOT EXISTS idx_files_modified ON files(modified_at);
 "#;
 
+const SCHEMA_V002: &str = r#"
+CREATE TABLE IF NOT EXISTS app_launches (
+    path TEXT PRIMARY KEY,
+    launch_count INTEGER NOT NULL DEFAULT 0,
+    last_launched INTEGER
+);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,9 +134,9 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        // After the single current migration, user_version should be 1.
-        // When new migrations are added, update this expectation.
-        assert_eq!(version, 1);
+        // Bump this expectation whenever a new migration is appended
+        // to `migrations()`.
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -135,7 +148,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 1);
+        assert_eq!(version, 2);
     }
 
     #[test]
@@ -157,7 +170,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 1);
+        assert_eq!(post, 2);
     }
 
     #[test]
@@ -172,6 +185,7 @@ mod tests {
             "note_tags",
             "files",
             "scratchpad",
+            "app_launches",
         ] {
             let exists: i64 = conn
                 .query_row(

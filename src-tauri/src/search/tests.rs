@@ -17,10 +17,17 @@ mod tests {
             icon: None,
             result_type: ResultType::Application,
             score: 0,
+            usage_bonus: 0.0,
             action: SearchAction::LaunchApp {
                 path: "/app".into(),
             },
         }
+    }
+
+    fn item_with_usage(name: &str, usage_bonus: f64) -> SearchResult {
+        let mut it = item(name);
+        it.usage_bonus = usage_bonus;
+        it
     }
 
     #[test]
@@ -151,5 +158,62 @@ mod tests {
         let items = vec![item_with_description("Thing", "")];
         let results = engine.search("xyz", items);
         assert!(results.is_empty());
+    }
+
+    // --- WAT-201: usage-weighted tie-break ---
+
+    #[test]
+    fn usage_bonus_breaks_ties_between_equal_fuzzy_scores() {
+        // Both items have identical names (so identical fuzzy scores).
+        // The one with the higher usage_bonus must come first.
+        let engine = SearchEngine::new();
+        let items = vec![
+            item_with_usage("Chrome", 10.0),  // heavy user
+            item_with_usage("Chrome", 0.0),   // fresh install in some hypothetical duplicate entry
+        ];
+        let results = engine.search("chrome", items);
+        assert_eq!(results.len(), 2);
+        assert!(
+            results[0].usage_bonus > results[1].usage_bonus,
+            "usage-weighted result should come first: [0]={} > [1]={}",
+            results[0].usage_bonus,
+            results[1].usage_bonus
+        );
+    }
+
+    #[test]
+    fn usage_bonus_does_not_override_better_fuzzy_match() {
+        // A low-usage app with a better fuzzy match must still beat a
+        // heavily-used app with a worse fuzzy match. Usage is a tie-
+        // breaker, not a primary key.
+        let engine = SearchEngine::new();
+        // "Chrome" is a perfect prefix match for "chrome"; "Chromium"
+        // scores strictly lower on skim for that query. Give Chromium
+        // a large usage bonus to make the test adversarial.
+        let items = vec![
+            item_with_usage("Chromium", 1_000_000.0),
+            item_with_usage("Chrome", 0.0),
+        ];
+        let results = engine.search("chrome", items);
+        assert_eq!(
+            results[0].name, "Chrome",
+            "better fuzzy match must win despite low usage; got order: {:?}",
+            results.iter().map(|r| &r.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn usage_bonus_zero_default_does_not_change_existing_rank() {
+        // Regression guard: before WAT-201, sort was stable on score
+        // alone. With usage_bonus defaulting to 0.0 for all non-app
+        // results, that behavior must be preserved.
+        let engine = SearchEngine::new();
+        let items = vec![
+            item("Firefox"),
+            item("Firefox Developer Edition"),
+        ];
+        let results = engine.search("firefox", items);
+        // "Firefox" scores at least as high as the longer form.
+        assert_eq!(results[0].name, "Firefox");
     }
 }

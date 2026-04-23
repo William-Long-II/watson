@@ -1,4 +1,5 @@
 mod actions;
+mod apps;
 mod calculator;
 mod clipboard;
 mod config;
@@ -62,7 +63,12 @@ fn save_settings_cmd(settings: Settings, state: State<AppState>) -> Result<(), S
 #[tauri::command]
 fn reindex_apps(state: State<AppState>) -> usize {
     let indexer = get_indexer();
-    let apps = indexer.index_apps();
+    let mut apps = indexer.index_apps();
+    // WAT-201: the indexer resets launch_count/last_launched to their
+    // indexer defaults. Re-merge persisted stats so ranking survives a
+    // reindex. Failure is non-fatal — without stats, ranking falls back
+    // to fuzzy-score-only behavior.
+    let _ = apps::merge_stats_into_apps(&state.db, &mut apps);
     let count = apps.len();
     *state.indexed_apps.write().unwrap() = apps;
     count
@@ -86,6 +92,7 @@ fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     icon: Some("note".to_string()),
                     result_type: ResultType::Note,
                     score: 10000,
+                    usage_bonus: 0.0,
                     action: SearchAction::OpenNote { note_id: note.id },
                 })
                 .collect()
@@ -110,6 +117,7 @@ fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     icon: Some("file".to_string()),
                     result_type: ResultType::File,
                     score: 10000,
+                    usage_bonus: 0.0,
                     action: SearchAction::OpenFile { path: file.path },
                 })
                 .collect()
@@ -138,6 +146,7 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
         icon: Some("calculator".to_string()),
         result_type: ResultType::Calculation,
         score: 100000, // Above everything else; we've already short-circuited.
+        usage_bonus: 0.0,
         action: SearchAction::CopyClipboard { content: copy_value },
     }
 }
@@ -158,6 +167,7 @@ fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<Search
             icon: Some("clipboard".to_string()),
             result_type: ResultType::Clipboard,
             score: 10000,
+            usage_bonus: 0.0,
             action: SearchAction::CopyClipboard { content: entry.content },
         })
         .collect()
@@ -202,6 +212,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 icon: ws.icon.clone(),
                 result_type: ResultType::WebSearch,
                 score: 10000,
+                usage_bonus: 0.0,
                 action: SearchAction::OpenUrl { url },
             });
         }
@@ -229,6 +240,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 icon: Some("system".to_string()),
                 result_type: ResultType::SystemCommand,
                 score: if is_command_query { 5000 } else { 0 },
+                usage_bonus: 0.0,
                 action: SearchAction::RunCommand { command: cmd.id },
             });
         }
@@ -236,7 +248,17 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
 
     // Add apps (skip if web search or command prefix)
     if !query.contains(' ') || (!is_command_query && items.is_empty()) {
+        // WAT-201: compute the usage bonus once for the whole loop; `now`
+        // is shared across items so relative ordering is consistent even
+        // if the loop takes a few ms at the edge of a second.
+        let now = chrono::Utc::now().timestamp();
+        let use_frequency_ranking = settings.search.use_frequency_ranking;
         for app in apps.iter() {
+            let bonus = if use_frequency_ranking {
+                search::ranking::usage_bonus(app.launch_count, app.last_launched, now)
+            } else {
+                0.0
+            };
             items.push(SearchResult {
                 id: app.id.clone(),
                 name: app.name.clone(),
@@ -244,6 +266,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 icon: app.icon_cache_path.clone(),
                 result_type: ResultType::Application,
                 score: 0,
+                usage_bonus: bonus,
                 action: SearchAction::LaunchApp {
                     path: app.path.clone(),
                 },
@@ -265,7 +288,26 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
 #[tauri::command]
 fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), String> {
     match action {
-        SearchAction::LaunchApp { path } => actions::launch_app(&path),
+        SearchAction::LaunchApp { path } => {
+            // WAT-201: record the launch BEFORE invoking the OS; if the
+            // launch itself fails, the stats still reflect intent (the
+            // user chose this app). Also patch the in-memory cache so
+            // the next search reflects the updated count without waiting
+            // for a reindex round-trip.
+            let _ = apps::record_launch(&state.db, &path);
+            let now = chrono::Utc::now().timestamp();
+            {
+                let mut cached = state.indexed_apps.write().unwrap();
+                for app in cached.iter_mut() {
+                    if app.path == path {
+                        app.launch_count = app.launch_count.saturating_add(1);
+                        app.last_launched = Some(now);
+                        break;
+                    }
+                }
+            }
+            actions::launch_app(&path)
+        }
         SearchAction::OpenUrl { url } => actions::open_url(&url),
         SearchAction::RunCommand { command } => execute_command(&command),
         SearchAction::CopyClipboard { content } => state.clipboard.copy_to_clipboard(&content),
@@ -450,7 +492,10 @@ pub fn run() {
     let notes = NotesManager::new(Arc::clone(&db), notes_path);
     let (settings, settings_warning) = config::load_settings();
     let indexer = get_indexer();
-    let indexed_apps = indexer.index_apps();
+    let mut indexed_apps = indexer.index_apps();
+    // WAT-201: bring persisted launch stats into the in-memory cache so
+    // the very first search after launch already ranks by usage.
+    let _ = apps::merge_stats_into_apps(&db, &mut indexed_apps);
 
     // Initialize clipboard manager
     let clipboard = ClipboardManager::new(50); // Store last 50 entries

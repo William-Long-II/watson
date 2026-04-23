@@ -47,6 +47,13 @@ pub struct SearchSettings {
     pub show_recently_used: bool,
     #[serde(default = "default_threshold")]
     pub fuzzy_match_threshold: f64,
+    /// WAT-201: when true, apps with higher recent launch counts win
+    /// tie-breaks against apps of equal fuzzy-match score. Fuzzy score
+    /// remains the primary sort key — this only affects ties. Defaults
+    /// to on; set to false to restore the pre-WAT-201 alphabetical
+    /// tiebreak behavior.
+    #[serde(default = "default_true")]
+    pub use_frequency_ranking: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +158,7 @@ impl Default for Settings {
                 max_results: 8,
                 show_recently_used: true,
                 fuzzy_match_threshold: 0.6,
+                use_frequency_ranking: true,
             },
             theme: ThemeSettings {
                 mode: "system".to_string(),

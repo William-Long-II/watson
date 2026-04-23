@@ -40,6 +40,7 @@ export interface SearchSettings {
   max_results: number;
   show_recently_used: boolean;
   fuzzy_match_threshold: number;
+  use_frequency_ranking: boolean;
 }
 
 export interface ThemeSettings {
