@@ -65,6 +65,16 @@ npm run tauri dev
 npm run tauri build
 ```
 
+#### Running tests
+
+```bash
+# Frontend unit tests (Vitest + React Testing Library)
+npm test
+
+# Rust tests (backend, storage, search)
+cd src-tauri && cargo test
+```
+
 ## Configuration
 
 Watson stores its configuration in:
