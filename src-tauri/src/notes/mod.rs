@@ -298,6 +298,38 @@ mod tests {
     }
 
     #[test]
+    fn create_does_not_leave_tmp_file_after_successful_write() {
+        // R-05 atomic-write contract: the .tmp sibling must not survive a
+        // successful write. If it did, a later reader could find two files
+        // for one note or see a half-written tmp.
+        let (mgr, dir) = manager();
+        mgr.create("T", "B").unwrap();
+        let tmps: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(
+            tmps.is_empty(),
+            "expected no .tmp files after successful write, got {tmps:?}"
+        );
+    }
+
+    #[test]
+    fn update_does_not_leave_tmp_file() {
+        let (mgr, dir) = manager();
+        let note = mgr.create("Old", "body").unwrap();
+        advance_ms_clock();
+        mgr.update(&note.id, "New", "body").unwrap();
+        let tmps: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(tmps.is_empty(), "update left tmp files: {tmps:?}");
+    }
+
+    #[test]
     fn create_file_contents_include_title_header_and_body() {
         let (mgr, dir) = manager();
         let note = mgr.create("My Title", "hello world").unwrap();

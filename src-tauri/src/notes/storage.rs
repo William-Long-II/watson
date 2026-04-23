@@ -16,8 +16,21 @@ pub fn write_note_file(
     // "exactly one .md file per note id" holds.
     cleanup_stale_files_for_id(storage_path, id, &filename);
 
+    // R-05 mitigation: write atomically. A crash between the two lines of
+    // std::fs::write can leave a truncated/empty file under `path`. Writing
+    // to a .tmp sibling and renaming guarantees a reader sees either the
+    // old complete contents or the new complete contents — never a
+    // half-written file. On the same filesystem, std::fs::rename is atomic.
     let file_content = format!("# {}\n\n{}", title, content);
-    std::fs::write(&path, file_content).map_err(|e| e.to_string())
+    let tmp_path = storage_path.join(format!("{filename}.tmp"));
+    std::fs::write(&tmp_path, file_content).map_err(|e| e.to_string())?;
+    if let Err(e) = std::fs::rename(&tmp_path, &path) {
+        // Best-effort cleanup of the tmp if the rename failed (e.g., target
+        // on a different filesystem). Let the original error surface.
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 pub fn delete_note_file(storage_path: &Path, id: &str) -> Result<(), String> {
