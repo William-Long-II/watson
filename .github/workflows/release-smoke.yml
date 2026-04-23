@@ -56,9 +56,19 @@ jobs:
           fi
 
       - name: Install minisign and jq
+        env:
+          MINISIGN_VERSION: '0.11'
         run: |
           sudo apt-get update
-          sudo apt-get install -y minisign jq
+          sudo apt-get install -y jq
+          # minisign isn't in Ubuntu's default repos on GitHub runners;
+          # install the official release binary from jedisct1/minisign.
+          curl --fail --location --retry 3 \
+            -o minisign.tar.gz \
+            "https://github.com/jedisct1/minisign/releases/download/${MINISIGN_VERSION}/minisign-${MINISIGN_VERSION}-linux.tar.gz"
+          tar -xzf minisign.tar.gz
+          sudo install -m 0755 minisign-linux/x86_64/minisign /usr/local/bin/minisign
+          minisign -v
 
       - name: Write pubkey to file
         run: |
