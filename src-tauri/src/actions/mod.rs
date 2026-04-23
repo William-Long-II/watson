@@ -1,4 +1,5 @@
 pub mod system;
+pub mod window;
 
 /// Reject paths/URLs containing ASCII control characters or nulls.
 ///
