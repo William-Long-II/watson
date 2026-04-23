@@ -70,12 +70,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setQuery: async (query: string) => {
     set({ query, selectedIndex: 0 });
 
-    if (!query.trim()) {
-      set({ results: [] });
-      get().resizeWindow();
-      return;
-    }
-
+    // WAT-304: empty queries are now meaningful — the backend returns a
+    // "Recents" view (recently-launched apps + recently-opened files).
+    // Drop the pre-WAT-304 short-circuit so the query='' path calls
+    // through. On a fresh install the backend returns []; the UI then
+    // renders the quick-tips placeholder as before.
     try {
       const results = await invoke<SearchResult[]>('search', { query });
       set({ results });

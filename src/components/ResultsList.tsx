@@ -19,18 +19,31 @@ function EmptyState() {
 export function ResultsList() {
   const { results, selectedIndex, setSelectedIndex, executeSelected, query } = useAppStore();
 
-  // Show empty state when no query
-  if (!query.trim()) {
+  // WAT-304: on an empty query, the backend returns recents (up to 5
+  // apps + 5 files). Show them with a "Recents" header. When recents
+  // are empty too — fresh install, no history yet — fall back to the
+  // quick-tips EmptyState.
+  const queryEmpty = !query.trim();
+  if (queryEmpty && results.length === 0) {
     return <EmptyState />;
   }
 
-  // Show nothing while searching (will show results when ready)
+  // Non-empty query with no results — stay silent while the user is
+  // still typing; the last results render via the map below.
   if (results.length === 0) {
     return null;
   }
 
   return (
     <div className="border-t border-[var(--border)] max-h-[320px] overflow-y-auto">
+      {queryEmpty && (
+        <p
+          data-testid="recents-header"
+          className="px-4 py-1.5 text-[10px] uppercase tracking-wider text-gray-400 font-medium"
+        >
+          Recents
+        </p>
+      )}
       {results.map((result, index) => (
         <ResultItem
           key={result.id}
