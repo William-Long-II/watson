@@ -1,4 +1,5 @@
 mod actions;
+mod calculator;
 mod clipboard;
 mod config;
 mod db;
@@ -116,6 +117,31 @@ fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
         .unwrap_or_default()
 }
 
+/// Wrap a successful calculation into the single `SearchResult` the UI
+/// renders. WAT-203 short-circuits the pipeline on detection, so this is
+/// the only result returned for a calculator query.
+fn calculation_result(calc: calculator::Calculation) -> SearchResult {
+    // The id is derived from the expression so identical repeats reuse
+    // the same result row (stable for React keying and de-dup).
+    let id = format!("calc:{}", calc.expression);
+    // Copy only the plain result value — not the "rates from ..." suffix
+    // on currency — so pasting somewhere else gives a clean number.
+    let copy_value = calc
+        .result
+        .split_once(" (")
+        .map(|(head, _)| head.to_string())
+        .unwrap_or_else(|| calc.result.clone());
+    SearchResult {
+        id,
+        name: format!("{} = {}", calc.expression, calc.result),
+        description: "Press Enter to copy".to_string(),
+        icon: Some("calculator".to_string()),
+        result_type: ResultType::Calculation,
+        score: 100000, // Above everything else; we've already short-circuited.
+        action: SearchAction::CopyClipboard { content: copy_value },
+    }
+}
+
 fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
     let entries = match sub {
         SubQuery::Listing => state.clipboard.get_history(),
@@ -139,6 +165,14 @@ fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<Search
 
 #[tauri::command]
 fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
+    // WAT-203: inline calculator runs first and short-circuits when the
+    // query looks like math or a unit/currency conversion. The detector
+    // is conservative — ordinary search queries ("apple", "chrome",
+    // "iphone 15") fall through to the normal pipeline.
+    if let Some(calc) = calculator::detect(&query) {
+        return vec![calculation_result(calc)];
+    }
+
     match classify_prefix_route(&query) {
         Route::Empty => return vec![],
         Route::Notes(sub) => return notes_route_results(&state, sub),

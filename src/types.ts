@@ -3,7 +3,7 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation';
   score: number;
   action: SearchAction;
 }

@@ -79,6 +79,26 @@ function FileIcon() {
   );
 }
 
+function CalculatorIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="4" y="2" width="16" height="20" rx="2" />
+        <line x1="8" y1="6" x2="16" y2="6" />
+        <line x1="8" y1="10" x2="8.01" y2="10" />
+        <line x1="12" y1="10" x2="12.01" y2="10" />
+        <line x1="16" y1="10" x2="16.01" y2="10" />
+        <line x1="8" y1="14" x2="8.01" y2="14" />
+        <line x1="12" y1="14" x2="12.01" y2="14" />
+        <line x1="16" y1="14" x2="16.01" y2="14" />
+        <line x1="8" y1="18" x2="8.01" y2="18" />
+        <line x1="12" y1="18" x2="12.01" y2="18" />
+        <line x1="16" y1="18" x2="16.01" y2="18" />
+      </svg>
+    </div>
+  );
+}
+
 function DefaultIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center">
@@ -105,6 +125,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <NoteIcon />;
       case 'file':
         return <FileIcon />;
+      case 'calculation':
+        return <CalculatorIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -124,6 +146,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Note';
       case 'file':
         return 'File';
+      case 'calculation':
+        return 'Calc';
       default:
         return '';
     }

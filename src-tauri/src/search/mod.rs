@@ -25,6 +25,9 @@ pub enum ResultType {
     Clipboard,
     Note,
     File,
+    /// WAT-203: inline calculation result (arithmetic, unit conversion,
+    /// currency). The action is always `CopyClipboard { content: result }`.
+    Calculation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
