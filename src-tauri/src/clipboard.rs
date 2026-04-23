@@ -111,3 +111,113 @@ impl ClipboardManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(content: &str) -> ClipboardEntry {
+        ClipboardEntry {
+            id: format!("clip:{content}"),
+            content: content.to_string(),
+            preview: content.chars().take(100).collect(),
+            timestamp: Utc::now(),
+        }
+    }
+
+    /// Push entries directly into the history mutex, bypassing the monitor
+    /// thread. Tests exercising the history API don't need OS clipboard
+    /// access or the start_monitoring() spawn.
+    fn push_entries(mgr: &ClipboardManager, items: &[&str]) {
+        let mut hist = mgr.history.lock().unwrap();
+        for s in items {
+            hist.push(entry(s));
+        }
+    }
+
+    // --- constructor / initial state ---
+
+    #[test]
+    fn new_has_empty_history() {
+        let mgr = ClipboardManager::new(50);
+        assert!(mgr.get_history().is_empty());
+    }
+
+    // --- get_history ---
+
+    #[test]
+    fn get_history_returns_entries_in_stored_order() {
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["first", "second", "third"]);
+        let hist = mgr.get_history();
+        assert_eq!(hist.len(), 3);
+        assert_eq!(hist[0].content, "first");
+        assert_eq!(hist[2].content, "third");
+    }
+
+    #[test]
+    fn get_history_returns_snapshot_not_live_reference() {
+        // Mutating the returned Vec must not affect the manager's state —
+        // get_history takes a lock and clones.
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["a", "b"]);
+        let mut snapshot = mgr.get_history();
+        snapshot.clear();
+        assert_eq!(
+            mgr.get_history().len(),
+            2,
+            "internal history should be unaffected by external mutation"
+        );
+    }
+
+    // --- search_history ---
+
+    #[test]
+    fn search_history_matches_content_substring() {
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["hello world", "foobar", "hello again"]);
+        let results = mgr.search_history("hello");
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn search_history_is_case_insensitive() {
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["Hello World"]);
+        assert_eq!(mgr.search_history("hello").len(), 1);
+        assert_eq!(mgr.search_history("WORLD").len(), 1);
+    }
+
+    #[test]
+    fn search_history_returns_empty_on_no_match() {
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["foo", "bar"]);
+        assert!(mgr.search_history("xylophone").is_empty());
+    }
+
+    #[test]
+    fn search_history_empty_query_matches_everything() {
+        // Empty query becomes the pattern "" which is a substring of every
+        // string. Pin the current contract.
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["a", "b", "c"]);
+        assert_eq!(mgr.search_history("").len(), 3);
+    }
+
+    // --- clear_history ---
+
+    #[test]
+    fn clear_history_empties_state() {
+        let mgr = ClipboardManager::new(50);
+        push_entries(&mgr, &["a", "b", "c"]);
+        mgr.clear_history();
+        assert!(mgr.get_history().is_empty());
+    }
+
+    #[test]
+    fn clear_history_is_ok_on_empty_manager() {
+        let mgr = ClipboardManager::new(50);
+        mgr.clear_history();
+        assert!(mgr.get_history().is_empty());
+    }
+}
