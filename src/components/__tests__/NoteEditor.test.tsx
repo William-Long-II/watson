@@ -141,4 +141,53 @@ describe('NoteEditor — WAT-204 reconcile banner', () => {
     expect(args.title).toBe('Meeting Notes');
     expect(args.content).toBe('body');
   });
+
+  // --- WAT-305 markdown preview toggle ---
+
+  it('starts in edit mode with the textarea visible', () => {
+    useAppStore.setState({ currentNote: note({ content: '# hello' }) });
+    render(<NoteEditor />);
+    expect(screen.getByPlaceholderText(/write your note/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('article', { name: /markdown preview/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('toggles to preview mode when the Preview button is clicked', async () => {
+    useAppStore.setState({ currentNote: note({ content: '# hello\n\nworld' }) });
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    await user.click(screen.getByRole('button', { name: /preview/i, pressed: false }));
+
+    // Textarea gone; article + rendered h1 present.
+    expect(screen.queryByPlaceholderText(/write your note/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /markdown preview/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'hello' })).toBeInTheDocument();
+  });
+
+  it('toggles back to edit when the button is clicked again', async () => {
+    useAppStore.setState({ currentNote: note({ content: 'body' }) });
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+
+    const toggle = screen.getByRole('button', { name: /preview/i });
+    await user.click(toggle);
+    // Button label flips to "Edit" and aria-pressed is true.
+    const backToEdit = screen.getByRole('button', { name: /edit/i, pressed: true });
+    await user.click(backToEdit);
+
+    expect(screen.getByPlaceholderText(/write your note/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('article', { name: /markdown preview/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a placeholder in preview mode when the buffer is empty', async () => {
+    useAppStore.setState({ currentNote: note({ content: '   \n\n  ' }) });
+    const user = userEvent.setup();
+    render(<NoteEditor />);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+    expect(screen.getByText(/nothing to preview yet/i)).toBeInTheDocument();
+  });
 });
