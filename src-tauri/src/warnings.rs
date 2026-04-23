@@ -24,6 +24,10 @@ pub enum StartupWarningKind {
     /// already taken by another app (common on some Linux WMs, macOS
     /// system preferences, Windows apps that bind Alt+Space).
     ShortcutUnavailable,
+    /// WAT-206: config.toml was written by a Watson newer than this binary.
+    /// We're running with defaults; the user's real config is untouched
+    /// on disk and they'll get it back when they upgrade again.
+    SettingsFromNewerVersion,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +69,27 @@ impl StartupWarnings {
         let before = inner.len();
         inner.retain(|w| w.id != id);
         inner.len() != before
+    }
+
+    /// WAT-206: record that the on-disk config was written by a newer
+    /// Watson. Uses a fixed id so the banner deduplicates if somehow the
+    /// helper is invoked more than once per startup.
+    pub fn record_settings_from_newer_version(
+        &self,
+        file_version: u32,
+        supported_version: u32,
+    ) {
+        let id = "settings-from-newer-version".to_string();
+        let _ = self.dismiss(&id);
+        self.push(StartupWarning {
+            id,
+            kind: StartupWarningKind::SettingsFromNewerVersion,
+            message: format!(
+                "Your config.toml was written by a newer Watson (schema v{file_version}); \
+                 this version supports up to v{supported_version}. Running with defaults. \
+                 Your config is preserved on disk — upgrade Watson to use it again."
+            ),
+        });
     }
 
     /// Convenience constructor for the common case: the global hotkey
@@ -179,5 +204,26 @@ mod tests {
         w.record_shortcut_unavailable("Alt+Space", "");
         assert!(w.dismiss("shortcut-unavailable:Alt+Space"));
         assert!(w.list().is_empty());
+    }
+
+    // --- WAT-206: settings schema-version warning ---
+
+    #[test]
+    fn record_settings_from_newer_version_mentions_both_versions() {
+        let w = StartupWarnings::new();
+        w.record_settings_from_newer_version(2, 1);
+        let warning = &w.list()[0];
+        assert_eq!(warning.kind, StartupWarningKind::SettingsFromNewerVersion);
+        assert!(warning.message.contains("v2"));
+        assert!(warning.message.contains("v1"));
+    }
+
+    #[test]
+    fn record_settings_from_newer_version_is_idempotent() {
+        // Shouldn't stack duplicate banners if invoked twice per startup.
+        let w = StartupWarnings::new();
+        w.record_settings_from_newer_version(2, 1);
+        w.record_settings_from_newer_version(2, 1);
+        assert_eq!(w.list().len(), 1);
     }
 }

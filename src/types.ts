@@ -98,7 +98,7 @@ export interface FileSearchSettings {
   max_depth: number;
 }
 
-export type StartupWarningKind = 'shortcut_unavailable';
+export type StartupWarningKind = 'shortcut_unavailable' | 'settings_from_newer_version';
 
 export interface StartupWarning {
   id: string;

@@ -138,4 +138,44 @@ describe('StartupWarningBanner', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveAttribute('aria-live', 'polite');
   });
+
+  // --- WAT-206 ---
+
+  it('shows "Open config folder" button for settings_from_newer_version kind', async () => {
+    const warning: StartupWarning = {
+      id: 'settings-from-newer-version',
+      kind: 'settings_from_newer_version',
+      message: 'Your config was written by a newer Watson.',
+    };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_startup_warnings') return [warning];
+      if (cmd === 'open_config_folder') return undefined;
+      return undefined;
+    });
+
+    const user = userEvent.setup();
+    render(<StartupWarningBanner onOpenSettings={() => {}} />);
+
+    const button = await screen.findByRole('button', { name: /open config folder/i });
+    await user.click(button);
+
+    expect(mockInvoke).toHaveBeenCalledWith('open_config_folder');
+  });
+
+  it('does not show "Change hotkey" for settings_from_newer_version kind', async () => {
+    const warning: StartupWarning = {
+      id: 'settings-from-newer-version',
+      kind: 'settings_from_newer_version',
+      message: 'Your config was written by a newer Watson.',
+    };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'get_startup_warnings') return [warning];
+      return undefined;
+    });
+
+    render(<StartupWarningBanner onOpenSettings={() => {}} />);
+
+    await screen.findByText(warning.message);
+    expect(screen.queryByRole('button', { name: /change hotkey/i })).not.toBeInTheDocument();
+  });
 });

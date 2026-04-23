@@ -388,6 +388,15 @@ fn dismiss_startup_warning(id: String, state: State<AppState>) -> bool {
     state.startup_warnings.dismiss(&id)
 }
 
+/// WAT-206: open the OS file browser at the config directory. Action
+/// target for the "Open config folder" button on the settings-schema
+/// warning banner.
+#[tauri::command]
+fn open_config_folder() -> Result<(), String> {
+    let dir = config::get_config_dir().ok_or("Could not determine config directory")?;
+    open::that(&dir).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = Arc::new(Database::new().expect("Failed to initialize database"));
@@ -398,7 +407,7 @@ pub fn run() {
         .map(|dirs| dirs.data_dir().join("notes"))
         .unwrap_or_else(|| std::path::PathBuf::from("./notes"));
     let notes = NotesManager::new(Arc::clone(&db), notes_path);
-    let settings = config::load_settings();
+    let (settings, settings_warning) = config::load_settings();
     let indexer = get_indexer();
     let indexed_apps = indexer.index_apps();
 
@@ -408,6 +417,18 @@ pub fn run() {
 
     // Initialize file search manager
     let file_search = Arc::new(FileSearchManager::new(Arc::clone(&db)));
+
+    // WAT-206: settings warnings surface via the same banner infrastructure
+    // as WAT-105's shortcut failures. Build the container up-front so we
+    // can push before handing it off to `manage()`.
+    let startup_warnings = StartupWarnings::new();
+    if let Some(config::SettingsWarning::FromNewerVersion {
+        file_version,
+        supported_version,
+    }) = settings_warning
+    {
+        startup_warnings.record_settings_from_newer_version(file_version, supported_version);
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -423,7 +444,7 @@ pub fn run() {
             scratchpad,
             notes,
             file_search,
-            startup_warnings: StartupWarnings::new(),
+            startup_warnings,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -513,7 +534,8 @@ pub fn run() {
             cancel_reindex_files,
             clear_file_index,
             get_startup_warnings,
-            dismiss_startup_warning
+            dismiss_startup_warning,
+            open_config_folder
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

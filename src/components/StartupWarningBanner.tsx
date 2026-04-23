@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useAppStore } from '../stores/app';
 import type { StartupWarning } from '../types';
 
@@ -53,7 +54,6 @@ function WarningRow({
   onDismiss: () => void;
   onOpenSettings: () => void;
 }) {
-  const isHotkey = warning.kind === 'shortcut_unavailable';
   return (
     <li className="flex items-start gap-2 px-4 py-2 text-xs text-amber-900 dark:text-amber-100">
       <svg
@@ -70,13 +70,31 @@ function WarningRow({
 
       <p className="flex-1 leading-snug">{warning.message}</p>
 
-      {isHotkey && (
+      {warning.kind === 'shortcut_unavailable' && (
         <button
           type="button"
           onClick={onOpenSettings}
           className="text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
         >
           Change hotkey
+        </button>
+      )}
+
+      {warning.kind === 'settings_from_newer_version' && (
+        <button
+          type="button"
+          onClick={() => {
+            // WAT-206: open the config dir in the OS file browser. Best-
+            // effort — surface errors to the console so users aren't
+            // left wondering why nothing happened. WAT-406 will move this
+            // to the notifications drawer.
+            invoke('open_config_folder').catch((err) =>
+              console.error('Failed to open config folder:', err),
+            );
+          }}
+          className="text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+        >
+          Open config folder
         </button>
       )}
 

@@ -2,6 +2,15 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    /// WAT-206: schema version of the config file. A config with a version
+    /// higher than `CURRENT_SCHEMA_VERSION` was written by a newer Watson
+    /// and we refuse to load it (fall back to defaults + surface a startup
+    /// warning) rather than silently dropping fields we don't understand.
+    /// Missing field (old configs written before WAT-206) defaults to 0,
+    /// which `config::migrations::migrate` then bumps to the current
+    /// version.
+    #[serde(default)]
+    pub schema_version: u32,
     pub general: GeneralSettings,
     pub activation: ActivationSettings,
     pub search: SearchSettings,
@@ -128,6 +137,7 @@ fn default_accent() -> String { "system".to_string() }
 impl Default for Settings {
     fn default() -> Self {
         Settings {
+            schema_version: crate::config::CURRENT_SCHEMA_VERSION,
             general: GeneralSettings {
                 launch_at_login: true,
                 show_in_dock: false,
