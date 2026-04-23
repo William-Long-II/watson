@@ -8,6 +8,7 @@ mod files;
 mod indexers;
 mod layout;
 mod notes;
+mod notifications;
 mod scratchpad;
 mod search;
 mod snippets;
@@ -18,6 +19,7 @@ use clipboard::ClipboardManager;
 use config::settings::Settings;
 use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
 use notes::NotesManager;
+use notifications::NotificationsManager;
 use scratchpad::ScratchpadManager;
 use snippets::SnippetsManager;
 use warnings::{StartupWarning, StartupWarnings};
@@ -52,6 +54,10 @@ struct AppState {
     /// should be rendered in the UI — e.g., the global hotkey couldn't be
     /// registered because another app already owns it.
     startup_warnings: StartupWarnings,
+    /// WAT-406: in-memory drawer of non-fatal events. Startup warnings
+    /// also push here so the drawer keeps a visible history after the
+    /// banner is dismissed.
+    notifications: NotificationsManager,
 }
 
 #[tauri::command]
@@ -774,6 +780,28 @@ fn dismiss_startup_warning(id: String, state: State<AppState>) -> bool {
     state.startup_warnings.dismiss(&id)
 }
 
+// --- WAT-406: notifications drawer ---
+
+#[tauri::command]
+fn list_notifications(state: State<AppState>) -> Vec<notifications::Notification> {
+    state.notifications.list()
+}
+
+#[tauri::command]
+fn notifications_unread_count(state: State<AppState>) -> usize {
+    state.notifications.unread_count()
+}
+
+#[tauri::command]
+fn dismiss_notification(id: String, state: State<AppState>) -> bool {
+    state.notifications.dismiss(&id)
+}
+
+#[tauri::command]
+fn dismiss_all_notifications(state: State<AppState>) -> usize {
+    state.notifications.dismiss_all()
+}
+
 /// WAT-206: open the OS file browser at the config directory. Action
 /// target for the "Open config folder" button on the settings-schema
 /// warning banner.
@@ -824,16 +852,33 @@ pub fn run() {
     // as WAT-105's shortcut failures. Build the container up-front so we
     // can push before handing it off to `manage()`.
     let startup_warnings = StartupWarnings::new();
+    // WAT-406: mirror every startup warning into the notifications
+    // drawer so dismissing the loud banner doesn't erase the history.
+    let notifications = NotificationsManager::new();
     if let Some(config::SettingsWarning::FromNewerVersion {
         file_version,
         supported_version,
     }) = settings_warning
     {
         startup_warnings.record_settings_from_newer_version(file_version, supported_version);
+        notifications.push(
+            notifications::Severity::Warning,
+            "Settings from a newer Watson",
+            &format!(
+                "Your config.toml is schema v{file_version}; this binary supports up to v{supported_version}. Running with defaults."
+            ),
+        );
     }
     // WAT-303: surface ignore-pattern compile errors through the same
     // banner channel. Valid patterns already applied above.
     startup_warnings.record_invalid_clipboard_filters(&pattern_errors);
+    if !pattern_errors.is_empty() {
+        notifications.push(
+            notifications::Severity::Warning,
+            "Clipboard filter errors",
+            &format!("{} pattern(s) failed to compile: {}", pattern_errors.len(), pattern_errors.join("; ")),
+        );
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -851,6 +896,7 @@ pub fn run() {
             file_search,
             snippets: SnippetsManager::new(Arc::clone(&db)),
             startup_warnings,
+            notifications,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -886,6 +932,15 @@ pub fn run() {
                 state
                     .startup_warnings
                     .record_shortcut_unavailable(hotkey_label, &e.to_string());
+                // WAT-406: mirror into the drawer so the history
+                // persists after the loud banner is dismissed.
+                state.notifications.push(
+                    notifications::Severity::Warning,
+                    "Hotkey unavailable",
+                    &format!(
+                        "Couldn't register {hotkey_label}: {e}. Another app may be using it."
+                    ),
+                );
             }
 
             // Create system tray (macOS and Windows only - Linux requires appindicator)
@@ -950,6 +1005,10 @@ pub fn run() {
             create_snippet,
             update_snippet,
             delete_snippet,
+            list_notifications,
+            notifications_unread_count,
+            dismiss_notification,
+            dismiss_all_notifications,
             get_startup_warnings,
             dismiss_startup_warning,
             open_config_folder,

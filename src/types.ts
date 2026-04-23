@@ -134,6 +134,19 @@ export type StartupWarningKind =
   | 'settings_from_newer_version'
   | 'invalid_clipboard_filter';
 
+// WAT-406: notifications drawer
+
+export type NotificationSeverity = 'info' | 'warning' | 'error';
+
+export interface Notification {
+  id: string;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  created_at: number;
+  dismissed?: boolean;
+}
+
 export interface StartupWarning {
   id: string;
   kind: StartupWarningKind;
