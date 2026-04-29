@@ -1,15 +1,56 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/app';
+import { getSecondaryActions } from '../lib/resultActions';
 
 export function SearchBar() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const { query, setQuery, moveSelection, executeSelected, hideWindow, setShowScratchpad, openNewNote } = useAppStore();
+  const {
+    query,
+    setQuery,
+    moveSelection,
+    executeSelected,
+    hideWindow,
+    setShowScratchpad,
+    openNewNote,
+    actionMenuOpen,
+    toggleActionMenu,
+    closeActionMenu,
+  } = useAppStore();
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // WAT-404: Cmd/Ctrl+K toggles the per-result actions menu. Handled
+    // here at the SearchBar level (the input owns focus) but only opens
+    // when the currently-selected result actually has secondary actions
+    // — otherwise the toggle is a no-op so users never see an empty
+    // menu.
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      const { results, selectedIndex } = useAppStore.getState();
+      const selected = results[selectedIndex];
+      if (selected && getSecondaryActions(selected).length > 0) {
+        toggleActionMenu();
+      }
+      return;
+    }
+
+    // When the actions menu is open, the menu component owns most key
+    // handling. SearchBar still handles Escape as a fallback so the
+    // user can dismiss without focusing the menu.
+    if (actionMenuOpen) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeActionMenu();
+        return;
+      }
+      // Forward navigation/Enter to the menu — let it bubble naturally
+      // by NOT preventing default here. The menu's onKeyDown sees them.
+      return;
+    }
+
     // Chained shortcuts when search is empty
     if (query === '') {
       // Scratchpad trigger: 's' or '`'
