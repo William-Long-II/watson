@@ -811,6 +811,45 @@ fn open_config_folder() -> Result<(), String> {
     open::that(&dir).map_err(|e| e.to_string())
 }
 
+/// WAT-404: open the OS file browser at `path`'s parent and (where
+/// supported) select the file. Used by the per-result Cmd+K menu's
+/// "Reveal in folder" action.
+///
+/// - Windows: `explorer /select,<path>` opens Explorer and highlights
+///   the file.
+/// - macOS: `open -R <path>` does the same in Finder.
+/// - Linux: falls back to opening the parent directory; no portable
+///   "select this file" affordance exists across file managers.
+#[tauri::command]
+fn reveal_file(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Note: the comma is required AND must be wedged in the same
+        // arg as `/select` — separating them as two args fails on
+        // Windows. Spawn (not status) so we don't block on Explorer.
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{path}"))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let parent = std::path::Path::new(&path)
+            .parent()
+            .ok_or_else(|| "path has no parent directory".to_string())?;
+        open::that(parent).map_err(|e| e.to_string())
+    }
+}
+
 /// WAT-205: returns the list of query prefixes the settings UI should flag
 /// as unreachable if reused as a web-search keyword.
 #[tauri::command]
@@ -1012,6 +1051,7 @@ pub fn run() {
             get_startup_warnings,
             dismiss_startup_warning,
             open_config_folder,
+            reveal_file,
             get_reserved_prefixes
         ])
         .run(tauri::generate_context!())

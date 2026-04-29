@@ -25,6 +25,9 @@ interface AppState {
   notifications: Notification[];
   notificationsUnread: number;
   notificationsOpen: boolean;
+  /** WAT-404: when true, the per-result Cmd+K secondary-action menu is open
+      for `results[selectedIndex]`. */
+  actionMenuOpen: boolean;
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -57,6 +60,8 @@ interface AppState {
   setNotificationsOpen: (open: boolean) => void;
   dismissNotification: (id: string) => Promise<void>;
   dismissAllNotifications: () => Promise<void>;
+  toggleActionMenu: () => void;
+  closeActionMenu: () => void;
 }
 
 // Height constants
@@ -85,9 +90,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   notifications: [],
   notificationsUnread: 0,
   notificationsOpen: false,
+  actionMenuOpen: false,
 
   setQuery: async (query: string) => {
-    set({ query, selectedIndex: 0 });
+    // WAT-404: changing the query invalidates whatever menu was open
+    // for the prior selection.
+    set({ query, selectedIndex: 0, actionMenuOpen: false });
 
     // WAT-304: empty queries are now meaningful — the backend returns a
     // "Recents" view (recently-launched apps + recently-opened files).
@@ -115,7 +123,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   moveSelection: (delta: number) => {
     const { selectedIndex, results } = get();
     const newIndex = Math.max(0, Math.min(results.length - 1, selectedIndex + delta));
-    set({ selectedIndex: newIndex });
+    // WAT-404: close any open action menu when the user navigates to a
+    // different row — otherwise the menu would attach to a row the user
+    // isn't pointing at anymore.
+    set({ selectedIndex: newIndex, actionMenuOpen: false });
   },
 
   loadSettings: async () => {
@@ -425,4 +436,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error('Failed to dismiss all notifications:', e);
     }
   },
+
+  // WAT-404: action menu only meaningful when there is something to act
+  // on. Toggle is a no-op for the empty-results case.
+  toggleActionMenu: () => {
+    const { results, selectedIndex } = get();
+    if (results.length === 0 || results[selectedIndex] === undefined) {
+      set({ actionMenuOpen: false });
+      return;
+    }
+    set({ actionMenuOpen: !get().actionMenuOpen });
+  },
+
+  closeActionMenu: () => set({ actionMenuOpen: false }),
 }));

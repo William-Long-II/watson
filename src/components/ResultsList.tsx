@@ -1,5 +1,7 @@
 import { useAppStore } from '../stores/app';
 import { ResultItem } from './ResultItem';
+import { ResultActionsMenu } from './ResultActionsMenu';
+import { getSecondaryActions } from '../lib/resultActions';
 
 function EmptyState() {
   return (
@@ -17,7 +19,8 @@ function EmptyState() {
 }
 
 export function ResultsList() {
-  const { results, selectedIndex, setSelectedIndex, executeSelected, query } = useAppStore();
+  const { results, selectedIndex, setSelectedIndex, executeSelected, query, actionMenuOpen } =
+    useAppStore();
 
   // WAT-304: on an empty query, the backend returns recents (up to 5
   // apps + 5 files). Show them with a "Recents" header. When recents
@@ -45,16 +48,24 @@ export function ResultsList() {
         </p>
       )}
       {results.map((result, index) => (
-        <ResultItem
-          key={result.id}
-          result={result}
-          isSelected={index === selectedIndex}
-          index={index}
-          onClick={() => {
-            setSelectedIndex(index);
-            executeSelected();
-          }}
-        />
+        <div key={result.id}>
+          <ResultItem
+            result={result}
+            isSelected={index === selectedIndex}
+            index={index}
+            onClick={() => {
+              setSelectedIndex(index);
+              executeSelected();
+            }}
+          />
+          {/* WAT-404: render the secondary-actions menu inline below the
+              currently-selected row. We re-check `getSecondaryActions`
+              here so a result with no secondaries hides the menu even
+              if `actionMenuOpen` is somehow stuck true. */}
+          {actionMenuOpen &&
+            index === selectedIndex &&
+            getSecondaryActions(result).length > 0 && <ResultActionsMenu result={result} />}
+        </div>
       ))}
     </div>
   );
