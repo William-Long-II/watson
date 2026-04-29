@@ -38,7 +38,16 @@ export function ResultsList() {
   }
 
   return (
-    <div className="border-t border-[var(--border)] max-h-[320px] overflow-y-auto">
+    // WAT-402: listbox pattern. The SearchBar input has role="combobox"
+    // and points its `aria-controls` at this list's id so screen readers
+    // can announce result-count changes and the active descendant as the
+    // user navigates with arrow keys.
+    <div
+      id="search-results-listbox"
+      role="listbox"
+      aria-label={queryEmpty ? 'Recent items' : 'Search results'}
+      className="border-t border-[var(--border)] max-h-[320px] overflow-y-auto"
+    >
       {queryEmpty && (
         <p
           data-testid="recents-header"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -218,6 +218,13 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [updateError, setUpdateError] = useState('');
   // WAT-405: confirm-modal state for Clear Clipboard History.
   const [showClearClipboardConfirm, setShowClearClipboardConfirm] = useState(false);
+  // WAT-402: focus the panel container on mount so the Esc handler
+  // catches even before the user clicks into a field. The user's prior
+  // focus (the SettingsIcon button) wouldn't bubble Esc into our region.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     getVersion().then(setVersion).catch(() => setVersion('unknown'));
@@ -272,11 +279,32 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="p-4 border-t border-[var(--border)] max-h-[350px] overflow-y-auto">
+    // WAT-402: panel-level Esc closes Settings — matches the behavior
+    // we already have on NoteEditor / Scratchpad / dialogs. tabIndex=-1
+    // lets the panel receive keyboard events without being part of the
+    // tab order.
+    <div
+      ref={panelRef}
+      role="region"
+      aria-label="Settings"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      className="p-4 border-t border-[var(--border)] max-h-[350px] overflow-y-auto outline-none"
+    >
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-semibold">Settings</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close settings"
+          className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>

@@ -207,7 +207,16 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
   };
 
   return (
+    // WAT-402: combobox pattern. Each row is a listbox option; the
+    // SearchBar's combobox input drives selection via
+    // `aria-activedescendant`, so the row's id has to be stable and
+    // unique per result. `aria-selected` reflects keyboard cursor
+    // position so screen readers announce the move.
     <div
+      id={`result-${result.id}`}
+      role="option"
+      aria-selected={isSelected}
+      aria-label={`${getTypeLabel()}: ${result.name}. ${result.description}`}
       onClick={onClick}
       style={{ animationDelay: `${index * 30}ms` }}
       className={`group flex items-center px-4 py-3 cursor-pointer transition-all duration-150 animate-fade-slide-in opacity-0 ${
@@ -222,7 +231,10 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         <div className="text-xs text-gray-500 truncate">{result.description}</div>
       </div>
       {result.result_type === 'clipboard' && <PinButton result={result} />}
-      <div className="text-[10px] uppercase tracking-wider text-gray-400 font-medium px-2 py-1 rounded bg-[var(--input-bg)]">
+      <div
+        aria-hidden="true"
+        className="text-[10px] uppercase tracking-wider text-gray-400 font-medium px-2 py-1 rounded bg-[var(--input-bg)]"
+      >
         {getTypeLabel()}
       </div>
     </div>
