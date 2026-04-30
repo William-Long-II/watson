@@ -127,10 +127,12 @@ export function NoteEditor() {
             </button>
           )}
           <button
+            type="button"
             onClick={closeNoteEditor}
-            className="text-gray-400 hover:text-gray-600"
+            aria-label="Close note editor"
+            className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>

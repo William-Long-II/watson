@@ -39,10 +39,12 @@ export function Scratchpad() {
             Clear
           </button>
           <button
+            type="button"
             onClick={() => setShowScratchpad(false)}
-            className="text-gray-400 hover:text-gray-600"
+            aria-label="Close scratchpad"
+            className="text-gray-400 hover:text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
@@ -54,6 +56,7 @@ export function Scratchpad() {
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder="Jot something down..."
+        aria-label="Scratchpad content"
         className="w-full h-48 p-3 text-sm bg-[var(--input-bg)] border border-[var(--border)] rounded-lg resize-none outline-none focus:ring-1 focus:ring-blue-500"
       />
       <p className="text-xs text-gray-400 mt-2">Press Escape to close. Auto-saves as you type.</p>

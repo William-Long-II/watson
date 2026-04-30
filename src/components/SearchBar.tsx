@@ -15,7 +15,15 @@ export function SearchBar() {
     actionMenuOpen,
     toggleActionMenu,
     closeActionMenu,
+    results,
+    selectedIndex,
   } = useAppStore();
+  // WAT-402: aria-activedescendant points to the currently-highlighted
+  // result row id so screen readers track keyboard navigation through
+  // the listbox without the input losing focus.
+  const activeOptionId = results[selectedIndex]
+    ? `result-${results[selectedIndex].id}`
+    : undefined;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -127,6 +135,14 @@ export function SearchBar() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Search apps, commands, or type a keyword..."
+          aria-label="Search"
+          role="combobox"
+          aria-controls="search-results-listbox"
+          aria-expanded={results.length > 0}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
+          autoComplete="off"
+          spellCheck={false}
           className="w-full pl-12 pr-4 py-3 text-base bg-[var(--input-bg)] text-[var(--foreground)] rounded-xl outline-none focus:ring-2 focus:ring-blue-500/50 transition-all placeholder:text-gray-400"
           autoFocus
         />
