@@ -93,6 +93,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   actionMenuOpen: false,
 
   setQuery: async (query: string) => {
+    // Frontend-only shortcut: 's ' (s + trailing space) opens the
+    // scratchpad. Single-letter `s` no longer intercepts because it
+    // collided with searches starting with that letter (a tab named
+    // "Slack" was unreachable). The `s ` form is also rare enough in
+    // real text that the shortcut still feels deliberate. Bare
+    // backtick remains a one-key trigger; handled in SearchBar so it
+    // never enters the query at all.
+    if (query === 's ') {
+      set({ query: '', selectedIndex: 0, results: [], actionMenuOpen: false });
+      get().setShowScratchpad(true);
+      return;
+    }
+
     // WAT-404: changing the query invalidates whatever menu was open
     // for the prior selection.
     set({ query, selectedIndex: 0, actionMenuOpen: false });
