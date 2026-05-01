@@ -162,6 +162,19 @@ function WindowIcon() {
   );
 }
 
+function BrowserTabIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18" />
+        <path d="M12 3a9 9 0 0 1 0 18" />
+        <path d="M12 3a9 9 0 0 0 0 18" />
+      </svg>
+    </div>
+  );
+}
+
 function DefaultIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center">
@@ -194,6 +207,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <SnippetIcon />;
       case 'open_window':
         return <WindowIcon />;
+      case 'browser_tab':
+        return <BrowserTabIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -219,6 +234,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Snip';
       case 'open_window':
         return 'Win';
+      case 'browser_tab':
+        return 'Tab';
       default:
         return '';
     }

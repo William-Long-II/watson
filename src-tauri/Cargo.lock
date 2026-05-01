@@ -4809,6 +4809,7 @@ dependencies = [
  "toml 0.8.2",
  "urlencoding",
  "walkdir",
+ "windows",
 ]
 
 [[package]]

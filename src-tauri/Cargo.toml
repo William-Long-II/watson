@@ -35,5 +35,15 @@ meval = "0.2"
 regex = "1"
 tokio = { version = "1", features = ["full"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+# UI Automation for browser tab enumeration. Only needed on Windows;
+# the target.cfg gate keeps macOS / Linux builds slim.
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Variant",
+    "Win32_UI_Accessibility",
+] }
+
 [dev-dependencies]
 tempfile = "3"
