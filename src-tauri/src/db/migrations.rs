@@ -46,6 +46,10 @@ pub fn migrations() -> Migrations<'static> {
         // search items; executing a snippet copies its expansion to
         // the clipboard and pastes into the prior-focused window.
         M::up(SCHEMA_V005),
+        // 006 — Gemini Improvement #5: Automated Icon Cache Invalidation.
+        // Add `icon_cache_mtime` to track the mtime of the app when its
+        // icon was last cached.
+        M::up(SCHEMA_V006),
     ])
 }
 
@@ -158,6 +162,10 @@ CREATE TABLE IF NOT EXISTS snippets (
 CREATE INDEX IF NOT EXISTS idx_snippets_trigger ON snippets(trigger);
 "#;
 
+const SCHEMA_V006: &str = r#"
+ALTER TABLE app_launches ADD COLUMN icon_cache_mtime INTEGER;
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,7 +189,7 @@ mod tests {
             .unwrap();
         // Bump this expectation whenever a new migration is appended
         // to `migrations()`.
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -193,7 +201,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5);
+        assert_eq!(version, 6);
     }
 
     #[test]
@@ -215,7 +223,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 5);
+        assert_eq!(post, 6);
     }
 
     #[test]

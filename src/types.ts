@@ -3,8 +3,13 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window';
+  /** The primary fuzzy-match score from the backend engine. */
   score: number;
+  /** Gemini Improvement #2: secondary frecency score (frequency + recency). */
+  usage_bonus: number;
+  /** Gemini Improvement #4: optional plain-text snippet for results that support a preview. */
+  preview?: string;
   /** WAT-303: populated only for clipboard results; true when pinned. */
   pinned?: boolean;
   action: SearchAction;
@@ -17,7 +22,8 @@ export type SearchAction =
   | { type: 'copy_clipboard'; content: string }
   | { type: 'open_note'; note_id: string }
   | { type: 'open_file'; path: string }
-  | { type: 'paste_snippet'; expansion: string };
+  | { type: 'paste_snippet'; expansion: string }
+  | { type: 'focus_window'; pid: number };
 
 export interface Snippet {
   id: string;

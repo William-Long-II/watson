@@ -95,13 +95,30 @@ fn reindex_apps(state: State<AppState>) -> usize {
     count
 }
 
-fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
-    let notes = match sub {
-        SubQuery::Listing => state.notes.get_recent(8),
-        SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8),
-        SubQuery::Search(q) => state.notes.search(&q),
+/// Gemini Improvement #4: clean plain-text snippet of a note's content.
+/// Strips markdown headers and collapses newlines to provide a dense
+/// preview for the search results row.
+fn note_preview(content: &str) -> String {
+    let clean = content
+        .lines()
+        .filter(|line| !line.trim().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let clipped: String = clean.chars().take(100).collect();
+    if clean.chars().count() > 100 {
+        format!("{clipped}…")
+    } else {
+        clipped
+    }
+}
+
+async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
+    let notes_res = match sub {
+        SubQuery::Listing => state.notes.get_recent(8).await,
+        SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8).await,
+        SubQuery::Search(q) => state.notes.search(&q).await,
     };
-    notes
+    notes_res
         .map(|notes| {
             notes
                 .into_iter()
@@ -113,7 +130,8 @@ fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     icon: Some("note".to_string()),
                     result_type: ResultType::Note,
                     score: 10000,
-                    usage_bonus: 0.0,
+                    frecency_score: 0.0,
+                    preview: Some(note_preview(&note.content)),
                     pinned: false,
                     action: SearchAction::OpenNote { note_id: note.id },
                 })
@@ -122,7 +140,7 @@ fn notes_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
         .unwrap_or_default()
 }
 
-fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
+async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
     let files = match sub {
         SubQuery::Listing => state.file_search.get_recent(8),
         SubQuery::Search(ref q) if q.is_empty() => state.file_search.get_recent(8),
@@ -139,7 +157,8 @@ fn files_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResu
                     icon: Some("file".to_string()),
                     result_type: ResultType::File,
                     score: 10000,
-                    usage_bonus: 0.0,
+                    frecency_score: 0.0,
+                    preview: None,
                     pinned: false,
                     action: SearchAction::OpenFile { path: file.path },
                 })
@@ -169,7 +188,8 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
         icon: Some("calculator".to_string()),
         result_type: ResultType::Calculation,
         score: 100000, // Above everything else; we've already short-circuited.
-        usage_bonus: 0.0,
+        frecency_score: 0.0,
+        preview: None,
         pinned: false,
         action: SearchAction::CopyClipboard { content: copy_value },
     }
@@ -216,7 +236,8 @@ fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
             icon: Some("system".to_string()),
             result_type: ResultType::SystemCommand,
             score: 5000,
-            usage_bonus: 0.0,
+            frecency_score: 0.0,
+            preview: None,
             pinned: false,
             action: SearchAction::RunCommand { command: cmd.id },
         })
@@ -228,7 +249,7 @@ fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
 /// most recently touched item comes first regardless of kind. Returns an
 /// empty vec on a fresh install (no launches or opens yet); the UI then
 /// falls back to its quick-tips placeholder.
-fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
+fn recents_results(state: &State<'_, AppState>) -> Vec<SearchResult> {
     const PER_KIND: usize = 5;
     const TOTAL_LIMIT: usize = 10;
 
@@ -256,7 +277,8 @@ fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
                     icon: app.icon_cache_path.clone(),
                     result_type: ResultType::Application,
                     score: 10000,
-                    usage_bonus: 0.0,
+                    frecency_score: 0.0,
+                    preview: None,
                     pinned: false,
                     action: SearchAction::LaunchApp { path: app.path.clone() },
                 },
@@ -276,7 +298,8 @@ fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
                     icon: Some("file".to_string()),
                     result_type: ResultType::File,
                     score: 10000,
-                    usage_bonus: 0.0,
+                    frecency_score: 0.0,
+                    preview: None,
                     pinned: false,
                     action: SearchAction::OpenFile { path: file.path },
                 },
@@ -292,7 +315,7 @@ fn recents_results(state: &State<AppState>) -> Vec<SearchResult> {
         .collect()
 }
 
-fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<SearchResult> {
+fn clipboard_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
     let entries = match sub {
         SubQuery::Listing => state.clipboard.get_history(),
         SubQuery::Search(ref q) if q.is_empty() => state.clipboard.get_history(),
@@ -312,7 +335,8 @@ fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<Search
             icon: Some("clipboard".to_string()),
             result_type: ResultType::Clipboard,
             score: 10000,
-            usage_bonus: 0.0,
+            frecency_score: 0.0,
+            preview: None,
             pinned: entry.pinned,
             action: SearchAction::CopyClipboard { content: entry.content },
         })
@@ -320,21 +344,21 @@ fn clipboard_route_results(state: &State<AppState>, sub: SubQuery) -> Vec<Search
 }
 
 #[tauri::command]
-fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
+async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
     // WAT-203: inline calculator runs first and short-circuits when the
     // query looks like math or a unit/currency conversion. The detector
     // is conservative — ordinary search queries ("apple", "chrome",
     // "iphone 15") fall through to the normal pipeline.
     if let Some(calc) = calculator::detect(&query) {
-        return vec![calculation_result(calc)];
+        return Ok(vec![calculation_result(calc)]);
     }
 
     match classify_prefix_route(&query) {
-        Route::Empty => return recents_results(&state),
-        Route::Notes(sub) => return notes_route_results(&state, sub),
-        Route::Files(sub) => return files_route_results(&state, sub),
-        Route::Clipboard(sub) => return clipboard_route_results(&state, sub),
-        Route::SystemCommands(sub) => return system_commands_route_results(sub),
+        Route::Empty => return Ok(recents_results(&state)),
+        Route::Notes(sub) => return Ok(notes_route_results(&state, sub).await),
+        Route::Files(sub) => return Ok(files_route_results(&state, sub).await),
+        Route::Clipboard(sub) => return Ok(clipboard_route_results(&state, sub)),
+        Route::SystemCommands(sub) => return Ok(system_commands_route_results(sub)),
         Route::Passthrough => {}
     }
 
@@ -359,7 +383,8 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 icon: ws.icon.clone(),
                 result_type: ResultType::WebSearch,
                 score: 10000,
-                usage_bonus: 0.0,
+                frecency_score: 0.0,
+                preview: None,
                 pinned: false,
                 action: SearchAction::OpenUrl { url },
             });
@@ -388,7 +413,8 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 // Between web (10000) and apps (0) so snippets surface
                 // reliably when triggered but don't swamp app matches.
                 score: 8000,
-                usage_bonus: 0.0,
+                frecency_score: 0.0,
+                preview: None,
                 pinned: false,
                 action: SearchAction::PasteSnippet { expansion: snippet.expansion },
             });
@@ -404,7 +430,7 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
         let use_frequency_ranking = settings.search.use_frequency_ranking;
         for app in apps.iter() {
             let bonus = if use_frequency_ranking {
-                search::ranking::usage_bonus(app.launch_count, app.last_launched, now)
+                search::ranking::frecency_score(app.launch_count, app.last_launched, now)
             } else {
                 0.0
             };
@@ -415,7 +441,8 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
                 icon: app.icon_cache_path.clone(),
                 result_type: ResultType::Application,
                 score: 0,
-                usage_bonus: bonus,
+                frecency_score: bonus,
+                preview: None,
                 pinned: false,
                 action: SearchAction::LaunchApp {
                     path: app.path.clone(),
@@ -424,10 +451,50 @@ fn search(query: String, state: State<AppState>) -> Vec<SearchResult> {
         }
     }
 
+    // Gemini Improvement #6: Add open windows to search results.
+    if let Ok(windows) = actions::windows::get_open_windows() {
+        for window in windows {
+            items.push(SearchResult {
+                id: format!("win:{}", window.pid),
+                name: window.title,
+                description: format!("Switch to {}", window.process_name),
+                icon: Some("window".to_string()),
+                result_type: ResultType::OpenWindow,
+                // Rank windows slightly higher than apps by giving them a base score.
+                score: 100,
+                frecency_score: 0.0,
+                preview: None,
+                pinned: false,
+                action: SearchAction::FocusWindow { pid: window.pid },
+            });
+        }
+    }
+
+    // Gemini Improvement #2: Add files with frecency bonus.
+    if let Ok(files) = state.file_search.get_recent(50) {
+        let now = chrono::Utc::now().timestamp();
+        for file in files {
+            // We need file open stats here. This requires a small change to
+            // FileSearchManager to return stats. For now, we'll use 0.0.
+            items.push(SearchResult {
+                id: file.id.clone(),
+                name: file.name,
+                description: file.path.clone(),
+                icon: Some("file".to_string()),
+                result_type: ResultType::File,
+                score: 0,
+                frecency_score: 0.0,
+                preview: None,
+                pinned: false,
+                action: SearchAction::OpenFile { path: file.path },
+            });
+        }
+    }
+
     // Search and limit results
     let mut results = state.search_engine.search(&query, items);
     results.truncate(settings.search.max_results);
-    results
+    Ok(results)
 }
 
 #[tauri::command]
@@ -476,6 +543,7 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             state.clipboard.copy_to_clipboard(&expansion)?;
             paste_snippet_via_os()
         }
+        SearchAction::FocusWindow { pid } => actions::windows::focus_window(pid),
     }
 }
 
@@ -650,40 +718,40 @@ fn clear_scratchpad(state: State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn create_note(title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
-    state.notes.create(&title, &content)
+async fn create_note(title: String, content: String, state: State<'_, AppState>) -> Result<notes::Note, String> {
+    state.notes.create(&title, &content).await
 }
 
 #[tauri::command]
-fn update_note(id: String, title: String, content: String, state: State<AppState>) -> Result<notes::Note, String> {
-    state.notes.update(&id, &title, &content)
+async fn update_note(id: String, title: String, content: String, state: State<'_, AppState>) -> Result<notes::Note, String> {
+    state.notes.update(&id, &title, &content).await
 }
 
 #[tauri::command]
-fn delete_note(id: String, state: State<AppState>) -> Result<(), String> {
-    state.notes.delete(&id)
+async fn delete_note(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.notes.delete(&id).await
 }
 
 #[tauri::command]
-fn get_note(id: String, state: State<AppState>) -> Result<Option<notes::Note>, String> {
-    state.notes.get(&id)
+async fn get_note(id: String, state: State<'_, AppState>) -> Result<Option<notes::Note>, String> {
+    state.notes.get(&id).await
 }
 
 /// WAT-204: adopt the on-disk version of a note, overwriting the DB. The
 /// frontend reconcile dialog calls this when the user picks "Use disk".
 #[tauri::command]
-fn reload_note_from_disk(id: String, state: State<AppState>) -> Result<notes::Note, String> {
-    state.notes.reload_from_disk(&id)
+async fn reload_note_from_disk(id: String, state: State<'_, AppState>) -> Result<notes::Note, String> {
+    state.notes.reload_from_disk(&id).await
 }
 
 #[tauri::command]
-fn search_notes(query: String, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
-    state.notes.search(&query)
+async fn search_notes(query: String, state: State<'_, AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.search(&query).await
 }
 
 #[tauri::command]
-fn get_recent_notes(limit: usize, state: State<AppState>) -> Result<Vec<notes::Note>, String> {
-    state.notes.get_recent(limit)
+async fn get_recent_notes(limit: usize, state: State<'_, AppState>) -> Result<Vec<notes::Note>, String> {
+    state.notes.get_recent(limit).await
 }
 
 #[tauri::command]

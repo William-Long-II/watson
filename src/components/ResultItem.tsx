@@ -148,6 +148,20 @@ function CalculatorIcon() {
   );
 }
 
+function WindowIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M2 7h20" />
+        <path d="M6 5h.01" />
+        <path d="M9 5h.01" />
+        <path d="M12 5h.01" />
+      </svg>
+    </div>
+  );
+}
+
 function DefaultIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center">
@@ -178,6 +192,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <CalculatorIcon />;
       case 'snippet':
         return <SnippetIcon />;
+      case 'open_window':
+        return <WindowIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -201,6 +217,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Calc';
       case 'snippet':
         return 'Snip';
+      case 'open_window':
+        return 'Win';
       default:
         return '';
     }
@@ -229,6 +247,11 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
       <div className="flex-1 min-w-0 ml-3">
         <div className="font-medium truncate">{result.name}</div>
         <div className="text-xs text-gray-500 truncate">{result.description}</div>
+        {result.preview && (
+          <div className="text-[11px] text-gray-400 mt-1 line-clamp-2 leading-relaxed italic">
+            {result.preview}
+          </div>
+        )}
       </div>
       {result.result_type === 'clipboard' && <PinButton result={result} />}
       <div

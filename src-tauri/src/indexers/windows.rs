@@ -51,6 +51,12 @@ impl WindowsIndexer {
                     }
 
                     let id = format!("app:{}", path.display());
+                    let modified_at = fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+
                     apps.push(AppEntry {
                         id,
                         name: name.to_string(),
@@ -59,6 +65,7 @@ impl WindowsIndexer {
                         launch_count: 0,
                         last_launched: None,
                         platform: "windows".to_string(),
+                        modified_at,
                     });
                 }
             }
