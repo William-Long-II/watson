@@ -45,5 +45,13 @@ windows = { version = "0.61", features = [
     "Win32_UI_Accessibility",
 ] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# X11 client for window enumeration + focus on X11 sessions. Default
+# features include the pure-Rust `rust_connection` so we don't pick up
+# a libxcb build-time dependency. Wayland support (wlr-foreign-
+# toplevel) is a follow-up issue; in the meantime the runtime falls
+# back to an explanatory error on Wayland sessions.
+x11rb = "0.13"
+
 [dev-dependencies]
 tempfile = "3"

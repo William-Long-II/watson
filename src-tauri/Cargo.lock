@@ -4784,7 +4784,7 @@ dependencies = [
 
 [[package]]
 name = "watson"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "arboard",
  "chrono",
@@ -4810,6 +4810,7 @@ dependencies = [
  "urlencoding",
  "walkdir",
  "windows",
+ "x11rb",
 ]
 
 [[package]]
