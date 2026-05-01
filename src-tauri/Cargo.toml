@@ -53,5 +53,16 @@ windows = { version = "0.61", features = [
 # back to an explanatory error on Wayland sessions.
 x11rb = "0.13"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Accessibility (AXUIElement) FFI declared inline; this gets us the
+# CF/Objective-C type plumbing we need to call the framework cleanly.
+# - core-foundation: CFString/CFArray/CFNumber/CFBoolean wrappers + retain/release
+# - objc2 + objc2-foundation + objc2-app-kit: NSWorkspace.runningApplications
+#   and NSRunningApplication.activate for cross-Space focus.
+core-foundation = "0.10"
+objc2 = "0.5"
+objc2-foundation = "0.2"
+objc2-app-kit = { version = "0.2", features = ["NSRunningApplication", "NSWorkspace"] }
+
 [dev-dependencies]
 tempfile = "3"

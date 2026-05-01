@@ -295,15 +295,12 @@ pub fn focus_window(hwnd: i64) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
-    // macOS support is a follow-up. Returning empty keeps the picker
-    // pipeline well-behaved (no panics, no error toast); the
-    // "Switch to…" feature simply doesn't surface results yet.
-    Ok(vec![])
+    macos::get_open_windows()
 }
 
 #[cfg(target_os = "macos")]
-pub fn focus_window(_hwnd: i64) -> Result<(), String> {
-    Err("Window focusing not yet implemented on macOS".to_string())
+pub fn focus_window(hwnd: i64) -> Result<(), String> {
+    macos::focus_window(hwnd)
 }
 
 #[cfg(target_os = "linux")]
@@ -325,6 +322,7 @@ pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
 pub fn focus_window(_hwnd: i64) -> Result<(), String> {
     Err("Window focusing not yet implemented on this platform".to_string())
 }
+
 
 // --- Linux backend ---
 //
@@ -737,6 +735,402 @@ mod linux {
             // "unknown".
             assert_eq!(process_name_for_pid(0), "unknown");
             assert_eq!(process_name_for_pid(4_000_000_000), "unknown");
+        }
+    }
+}
+
+// --- macOS backend ---
+//
+// macOS exposes per-app window lists through the Accessibility (AX)
+// API rather than a global enumeration like Win32 EnumWindows. We
+// iterate `NSWorkspace.runningApplications` for PIDs, then call
+// `AXUIElementCreateApplication(pid)` per app and read the
+// `kAXWindowsAttribute` array. AX gives us both enumeration AND
+// activation through one permission gate (Accessibility), which is
+// the cleanest UX — vs. CGWindowList which can't activate and since
+// macOS 14.4 redacts titles without Screen Recording permission too.
+//
+// Window handles are synthetic i64s. AX elements are CFTypeRefs
+// (opaque pointers, not stable identifiers like X11 window IDs or
+// Win32 HWNDs), so we maintain a side-table mapping our minted i64s
+// to retained AXUIElementRefs across the IPC boundary. Each
+// `get_open_windows` call rebuilds the table; old entries' refs are
+// released via the AXRef Drop.
+//
+// Out of scope here (separate follow-up issues):
+// - Browser tab enumeration via AX tree walk (separate issue).
+// - Full permission UX with deep-link to System Settings → Privacy
+//   & Security → Accessibility (this PR returns a clean error
+//   message; a polished StartupWarning is a follow-up).
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::WindowEntry;
+    use std::collections::HashMap;
+    use std::os::raw::{c_int, c_void};
+    use std::sync::{Mutex, OnceLock};
+
+    use core_foundation::array::{CFArray, CFArrayRef};
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::boolean::kCFBooleanTrue;
+    use core_foundation::string::{CFString, CFStringRef};
+
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+
+    type AXUIElementRef = *const c_void;
+    type AXError = i32;
+    const AX_OK: AXError = 0;
+
+    // AX attribute / action names are NSStrings in the framework, but
+    // since CFString and NSString are toll-free bridged we just
+    // rebuild them from Rust strs as needed.
+    const K_AX_WINDOWS_ATTRIBUTE: &str = "AXWindows";
+    const K_AX_TITLE_ATTRIBUTE: &str = "AXTitle";
+    const K_AX_MINIMIZED_ATTRIBUTE: &str = "AXMinimized";
+    const K_AX_MAIN_ATTRIBUTE: &str = "AXMain";
+    const K_AX_RAISE_ACTION: &str = "AXRaise";
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        // Returns whether the calling process is trusted to use AX. A
+        // null `options` arg means "do not prompt"; passing a dict
+        // with kAXTrustedCheckOptionPrompt=true would surface the
+        // system prompt. We want a non-prompting probe so callers
+        // (search, focus) can fail fast without UI side-effects.
+        fn AXIsProcessTrustedWithOptions(options: *const c_void) -> u8;
+
+        fn AXUIElementCreateApplication(pid: c_int) -> AXUIElementRef;
+
+        fn AXUIElementCopyAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> AXError;
+
+        fn AXUIElementSetAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: CFTypeRef,
+        ) -> AXError;
+
+        fn AXUIElementPerformAction(
+            element: AXUIElementRef,
+            action: CFStringRef,
+        ) -> AXError;
+    }
+
+    /// RAII wrapper for a retained AX element. Releases the
+    /// underlying CFTypeRef on drop. Send is sound because CF
+    /// retain/release is thread-safe.
+    struct AXRef(AXUIElementRef);
+    impl AXRef {
+        /// Take ownership of a +1 retained ref (returned by Create
+        /// or Copy functions per CF naming convention). Returns None
+        /// for null pointers.
+        unsafe fn take(p: AXUIElementRef) -> Option<Self> {
+            if p.is_null() {
+                None
+            } else {
+                Some(AXRef(p))
+            }
+        }
+        fn as_raw(&self) -> AXUIElementRef {
+            self.0
+        }
+    }
+    impl Drop for AXRef {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CFRelease(self.0 as CFTypeRef) };
+            }
+        }
+    }
+    unsafe impl Send for AXRef {}
+
+    struct StoredWindow {
+        ax: AXRef,
+        pid: u32,
+    }
+
+    /// Side-table mapping our minted i64 handles to retained AX
+    /// refs. Initialized lazily on first enumeration. Each new
+    /// enumeration replaces the entire map; the prior entries'
+    /// AXRef Drops handle CFRelease.
+    static WINDOW_TABLE: OnceLock<Mutex<HashMap<i64, StoredWindow>>> = OnceLock::new();
+
+    fn table() -> &'static Mutex<HashMap<i64, StoredWindow>> {
+        WINDOW_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn ax_is_trusted() -> bool {
+        unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) != 0 }
+    }
+
+    /// Read an AX attribute as a +1 retained CFTypeRef. Caller owns.
+    unsafe fn copy_attr(element: AXUIElementRef, attr: &str) -> Option<CFTypeRef> {
+        let cf_attr = CFString::new(attr);
+        let mut out: CFTypeRef = std::ptr::null();
+        let err =
+            AXUIElementCopyAttributeValue(element, cf_attr.as_concrete_TypeRef(), &mut out);
+        if err != AX_OK || out.is_null() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+
+    fn read_attr_string(element: AXUIElementRef, attr: &str) -> Option<String> {
+        unsafe {
+            let raw = copy_attr(element, attr)?;
+            // wrap_under_create_rule consumes the +1 retain.
+            let cf_str = CFString::wrap_under_create_rule(raw as CFStringRef);
+            Some(cf_str.to_string())
+        }
+    }
+
+    fn read_attr_bool(element: AXUIElementRef, attr: &str) -> Option<bool> {
+        unsafe {
+            let raw = copy_attr(element, attr)?;
+            // CFBoolean has only two singleton instances; pointer
+            // equality with kCFBooleanTrue is the standard idiom.
+            let is_true = raw as *const c_void == kCFBooleanTrue as *const c_void;
+            CFRelease(raw);
+            Some(is_true)
+        }
+    }
+
+    /// Iterate `NSWorkspace.sharedWorkspace.runningApplications` and
+    /// return (pid, localizedName) pairs. Skips our own process so
+    /// Watson doesn't list itself.
+    fn list_running_apps() -> Vec<(i32, String)> {
+        let our_pid = std::process::id() as i32;
+        let mut apps = Vec::new();
+        unsafe {
+            // [NSWorkspace sharedWorkspace] -> NSWorkspace*
+            let ws_class = objc2::class!(NSWorkspace);
+            let workspace: *mut AnyObject = msg_send![ws_class, sharedWorkspace];
+            if workspace.is_null() {
+                return apps;
+            }
+            // [workspace runningApplications] -> NSArray<NSRunningApplication*>*
+            let array: *mut AnyObject = msg_send![workspace, runningApplications];
+            if array.is_null() {
+                return apps;
+            }
+            let count: usize = msg_send![array, count];
+            for i in 0..count {
+                let app: *mut AnyObject = msg_send![array, objectAtIndex: i];
+                if app.is_null() {
+                    continue;
+                }
+                let pid: i32 = msg_send![app, processIdentifier];
+                if pid <= 0 || pid == our_pid {
+                    continue;
+                }
+                // [app localizedName] -> NSString*; can be nil for
+                // some background helpers — fall back to "unknown".
+                let name_ns: *mut AnyObject = msg_send![app, localizedName];
+                let name = if name_ns.is_null() {
+                    String::from("unknown")
+                } else {
+                    // NSString -> Rust String via UTF8String C buffer.
+                    let cstr: *const i8 = msg_send![name_ns, UTF8String];
+                    if cstr.is_null() {
+                        String::from("unknown")
+                    } else {
+                        std::ffi::CStr::from_ptr(cstr)
+                            .to_string_lossy()
+                            .into_owned()
+                    }
+                };
+                apps.push((pid, name));
+            }
+        }
+        apps
+    }
+
+    pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
+        if !ax_is_trusted() {
+            return Err(
+                "Watson does not have Accessibility permission. Grant access in \
+                 System Settings → Privacy & Security → Accessibility, then try again."
+                    .to_string(),
+            );
+        }
+
+        let mut entries = Vec::new();
+        let mut new_table: HashMap<i64, StoredWindow> = HashMap::new();
+        let mut next_handle: i64 = 1;
+
+        for (pid, app_name) in list_running_apps() {
+            let ax_app = unsafe { AXUIElementCreateApplication(pid) };
+            let ax_app_owned = match unsafe { AXRef::take(ax_app) } {
+                Some(r) => r,
+                None => continue,
+            };
+
+            // Get the windows array. Apps without windows (background
+            // daemons, Dock, Finder when no windows are open) return
+            // either an error or an empty array — both are skipped.
+            let windows_raw = match unsafe { copy_attr(ax_app_owned.as_raw(), K_AX_WINDOWS_ATTRIBUTE) } {
+                Some(p) => p,
+                None => continue,
+            };
+            let windows_array: CFArray<CFTypeRef> =
+                unsafe { CFArray::wrap_under_create_rule(windows_raw as CFArrayRef) };
+
+            for i in 0..windows_array.len() {
+                let window_ref = match windows_array.get(i) {
+                    Some(r) => *r,
+                    None => continue,
+                };
+                if window_ref.is_null() {
+                    continue;
+                }
+
+                // CFArrayGetValueAtIndex returns a borrowed (non-
+                // retained) reference. We need to retain since
+                // we're going to outlive the array.
+                let retained_window = unsafe {
+                    let _: CFTypeRef = core_foundation::base::CFRetain(window_ref);
+                    AXRef::take(window_ref as AXUIElementRef)
+                };
+                let retained_window = match retained_window {
+                    Some(r) => r,
+                    None => continue,
+                };
+
+                // Skip minimized windows (matches Win32 IsIconic
+                // filter — we'd surface them as a separate route in
+                // a follow-up if useful).
+                if read_attr_bool(retained_window.as_raw(), K_AX_MINIMIZED_ATTRIBUTE) == Some(true)
+                {
+                    continue;
+                }
+
+                let title = match read_attr_string(retained_window.as_raw(), K_AX_TITLE_ATTRIBUTE)
+                {
+                    Some(t) if !t.trim().is_empty() => t,
+                    _ => continue, // Untitled — skip, matches Win32.
+                };
+
+                let handle = next_handle;
+                next_handle += 1;
+
+                entries.push(WindowEntry {
+                    hwnd: handle,
+                    pid: pid as u32,
+                    process_name: app_name.clone(),
+                    title,
+                });
+                new_table.insert(
+                    handle,
+                    StoredWindow {
+                        ax: retained_window,
+                        pid: pid as u32,
+                    },
+                );
+            }
+        }
+
+        // Replace the side table; old entries' AXRef Drops fire here.
+        let mut t = table().lock().unwrap();
+        *t = new_table;
+
+        Ok(entries)
+    }
+
+    pub fn focus_window(hwnd: i64) -> Result<(), String> {
+        if !ax_is_trusted() {
+            return Err(
+                "Watson does not have Accessibility permission. Grant access in \
+                 System Settings → Privacy & Security → Accessibility, then try again."
+                    .to_string(),
+            );
+        }
+
+        // Look up + clone the AX ref so we can drop the lock before
+        // running AX calls (AX calls can be slow and we don't want
+        // to block other table ops). We "clone" by retaining.
+        let stored = {
+            let t = table().lock().unwrap();
+            let entry = t
+                .get(&hwnd)
+                .ok_or_else(|| format!("window {hwnd} not in current snapshot — re-search"))?;
+            let raw = entry.ax.as_raw();
+            unsafe { core_foundation::base::CFRetain(raw as CFTypeRef) };
+            (
+                unsafe { AXRef::take(raw) }.expect("retained ref non-null"),
+                entry.pid,
+            )
+        };
+        let (target, pid) = stored;
+
+        // 1. Make this window the app's main window. Some apps need
+        //    this for the subsequent raise to bring this specific
+        //    window to the front (vs. some other window of the same
+        //    app).
+        unsafe {
+            let attr = CFString::new(K_AX_MAIN_ATTRIBUTE);
+            let _ = AXUIElementSetAttributeValue(
+                target.as_raw(),
+                attr.as_concrete_TypeRef(),
+                kCFBooleanTrue as CFTypeRef,
+            );
+            // 2. Raise the window within its app's window stack.
+            let action = CFString::new(K_AX_RAISE_ACTION);
+            let raise_err =
+                AXUIElementPerformAction(target.as_raw(), action.as_concrete_TypeRef());
+            if raise_err != AX_OK {
+                return Err(format!(
+                    "AX raise failed (err {raise_err}) — window may have closed"
+                ));
+            }
+        }
+
+        // 3. Bring the owning app to the foreground. AX raise alone
+        //    won't bring an app forward across Spaces; we need
+        //    NSRunningApplication.activate for that. Failure is
+        //    non-fatal — the window is at least raised within its
+        //    own Space.
+        unsafe {
+            let cls = objc2::class!(NSRunningApplication);
+            let app: *mut AnyObject =
+                msg_send![cls, runningApplicationWithProcessIdentifier: pid as i32];
+            if !app.is_null() {
+                // NSApplicationActivateAllWindows = 1 (deprecated on
+                // 14+ but still functional and the only stable
+                // numeric option). Newer code paths use the no-arg
+                // -activate, but we keep the bitmask form for
+                // compatibility back to macOS 11.
+                let _: () = msg_send![app, activateWithOptions: 1u64];
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn ax_trusted_does_not_panic() {
+            // CI runners typically don't have AX granted to the test
+            // process; we assert only that the call doesn't panic
+            // and returns a deterministic bool.
+            let _ = ax_is_trusted();
+        }
+
+        #[test]
+        fn list_running_apps_returns_self_excluded() {
+            // The runner has at least one running app (itself, plus
+            // launchd, etc.). Verify we skip our own PID.
+            let our_pid = std::process::id() as i32;
+            let apps = list_running_apps();
+            for (pid, _) in &apps {
+                assert_ne!(*pid, our_pid, "list_running_apps must exclude Watson");
+            }
         }
     }
 }
