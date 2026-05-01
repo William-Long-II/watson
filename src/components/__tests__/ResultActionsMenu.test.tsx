@@ -16,6 +16,7 @@ function fileResult(): SearchResult {
     icon: null,
     result_type: 'file',
     score: 1,
+    usage_bonus: 0,
     action: { type: 'open_file', path: '/etc/config.toml' },
   };
 }

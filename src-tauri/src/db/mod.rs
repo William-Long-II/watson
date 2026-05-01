@@ -82,6 +82,29 @@ impl Database {
         let rows = stmt.query_map(params, f)?;
         rows.collect()
     }
+
+    /// Run a closure within a database transaction. If the closure returns
+    /// `Err`, the transaction is rolled back. If it returns `Ok`, the
+    /// transaction is committed.
+    ///
+    /// The closure receives a reference to the `rusqlite::Connection`.
+    pub fn with_transaction<T, F>(&self, f: F) -> DbResult<T>
+    where
+        F: FnOnce(&rusqlite::Connection) -> DbResult<T>,
+    {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        match f(&tx) {
+            Ok(result) => {
+                tx.commit()?;
+                Ok(result)
+            }
+            Err(e) => {
+                // tx.rollback() is called automatically on drop if not committed
+                Err(e)
+            }
+        }
+    }
 }
 
 fn get_db_path() -> Option<PathBuf> {
@@ -99,6 +122,9 @@ pub struct AppEntry {
     pub launch_count: i32,
     pub last_launched: Option<i64>,
     pub platform: String,
+    /// Gemini Improvement #5: The modification time of the executable or
+    /// app bundle, used for icon cache invalidation.
+    pub modified_at: i64,
 }
 
 #[cfg(test)]

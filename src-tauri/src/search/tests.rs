@@ -17,7 +17,8 @@ mod tests {
             icon: None,
             result_type: ResultType::Application,
             score: 0,
-            usage_bonus: 0.0,
+            frecency_score: 0.0,
+            preview: None,
             pinned: false,
             action: SearchAction::LaunchApp {
                 path: "/app".into(),
@@ -25,9 +26,9 @@ mod tests {
         }
     }
 
-    fn item_with_usage(name: &str, usage_bonus: f64) -> SearchResult {
+    fn item_with_usage(name: &str, frecency_score: f64) -> SearchResult {
         let mut it = item(name);
-        it.usage_bonus = usage_bonus;
+        it.frecency_score = frecency_score;
         it
     }
 
@@ -166,7 +167,7 @@ mod tests {
     #[test]
     fn usage_bonus_breaks_ties_between_equal_fuzzy_scores() {
         // Both items have identical names (so identical fuzzy scores).
-        // The one with the higher usage_bonus must come first.
+        // The one with the higher frecency_score must come first.
         let engine = SearchEngine::new();
         let items = vec![
             item_with_usage("Chrome", 10.0),  // heavy user
@@ -175,10 +176,10 @@ mod tests {
         let results = engine.search("chrome", items);
         assert_eq!(results.len(), 2);
         assert!(
-            results[0].usage_bonus > results[1].usage_bonus,
+            results[0].frecency_score > results[1].frecency_score,
             "usage-weighted result should come first: [0]={} > [1]={}",
-            results[0].usage_bonus,
-            results[1].usage_bonus
+            results[0].frecency_score,
+            results[1].frecency_score
         );
     }
 

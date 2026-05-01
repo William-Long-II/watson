@@ -14,13 +14,16 @@ pub struct SearchResult {
     pub icon: Option<String>,
     pub result_type: ResultType,
     pub score: i64,
-    /// WAT-201: secondary sort key. Applications carry their decayed
-    /// launch-frequency here; other result types leave it at 0.0. When
-    /// two results share the same fuzzy `score`, the higher
-    /// `usage_bonus` wins. Zero-default so existing construction sites
-    /// need no changes.
-    #[serde(default, skip_serializing_if = "is_zero_f64")]
-    pub usage_bonus: f64,
+    /// Gemini Improvement #2: secondary sort key. Items carry their
+    /// decayed usage-frequency (frecency) here. When two results share
+    /// the same fuzzy `score`, the higher `frecency_score` wins.
+    /// Zero-default so construction sites only opt-in.
+    #[serde(default, rename = "usage_bonus", skip_serializing_if = "is_zero_f64")]
+    pub frecency_score: f64,
+    /// Gemini Improvement #4: optional plain-text snippet for results that
+    /// support a preview (like notes or snippets).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
     /// WAT-303: populated only for clipboard results — indicates the
     /// entry is pinned (survives clear-history; sorts above unpinned).
     /// Default false, skip-serialize-if-false so non-clipboard results
@@ -54,6 +57,8 @@ pub enum ResultType {
     /// `PasteSnippet { expansion }` — copy to clipboard then synthesize
     /// a paste into the prior-focused window.
     Snippet,
+    /// Gemini Improvement #6: an open window that can be switched to.
+    OpenWindow,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +73,8 @@ pub enum SearchAction {
     /// WAT-301: copy `expansion` to the clipboard and synthesize a
     /// paste into the prior-focused window.
     PasteSnippet { expansion: String },
+    /// Gemini Improvement #6: focus an existing window by PID.
+    FocusWindow { pid: u32 },
 }
 
 pub struct SearchEngine {
@@ -118,17 +125,18 @@ impl SearchEngine {
             })
             .collect();
 
-        // WAT-201: two-key descending sort — primary `score`, secondary
-        // `usage_bonus`. When scores differ, usage is irrelevant
-        // (matching the "only breaks ties" contract). When scores are
-        // equal, more-used apps float up. `partial_cmp` can't return
-        // None for finite f64; fall back to Equal defensively.
+        // Gemini Improvement #2: two-key descending sort — primary
+        // `score`, secondary `frecency_score`. When scores differ,
+        // frecency is irrelevant (matching the "only breaks ties"
+        // contract). When scores are equal, more-used items float up.
+        // `partial_cmp` can't return None for finite f64; fall back to
+        // Equal defensively.
         results.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
                 .then_with(|| {
-                    b.usage_bonus
-                        .partial_cmp(&a.usage_bonus)
+                    b.frecency_score
+                        .partial_cmp(&a.frecency_score)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
         });

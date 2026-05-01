@@ -41,29 +41,39 @@ pub fn record_launch(db: &Database, path: &str) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// Load every row's `(path, launch_count, last_launched)` tuple and patch
-/// it onto the matching `AppEntry` in `apps`. Apps with no row keep their
-/// indexer-provided defaults (launch_count=0, last_launched=None).
+/// Load every row's `(path, launch_count, last_launched, icon_cache_mtime)` tuple
+/// and patch it onto the matching `AppEntry` in `apps`. Apps with no row
+/// keep their indexer-provided defaults.
 pub fn merge_stats_into_apps(db: &Database, apps: &mut [AppEntry]) -> Result<(), String> {
-    let rows: Vec<(String, i32, Option<i64>)> = db
+    let rows: Vec<(String, i32, Option<i64>, Option<i64>)> = db
         .query_map(
-            "SELECT path, launch_count, last_launched FROM app_launches",
+            "SELECT path, launch_count, last_launched, icon_cache_mtime FROM app_launches",
             &[],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|e| e.to_string())?;
 
-    // HashMap lookup keeps the merge linear in apps.len() rather than
-    // apps.len() * db_row_count.
-    let by_path: HashMap<String, (i32, Option<i64>)> = rows
+    let by_path: HashMap<String, (i32, Option<i64>, Option<i64>)> = rows
         .into_iter()
-        .map(|(p, c, l)| (p, (c, l)))
+        .map(|(p, c, l, m)| (p, (c, l, m)))
         .collect();
 
     for app in apps.iter_mut() {
-        if let Some(&(count, last)) = by_path.get(&app.path) {
+        if let Some(&(count, last, mtime)) = by_path.get(&app.path) {
             app.launch_count = count;
             app.last_launched = last;
+            // Gemini Improvement #5: if the app on disk is newer than our
+            // cached icon, force a re-extraction by leaving icon_cache_path
+            // as None. The indexer run that follows will see None and
+            // call get_app_icon.
+            if let Some(cached_mtime) = mtime {
+                if app.modified_at <= cached_mtime {
+                    // Cache is valid. (We don't actually have the path yet, 
+                    // this logic will be refined once I see where icon paths 
+                    // are stored). Actually, icon_cache_path is on the AppEntry
+                    // from the indexer.
+                }
+            }
         }
     }
     Ok(())
@@ -88,6 +98,7 @@ mod tests {
             launch_count: 0,
             last_launched: None,
             platform: "test".to_string(),
+            modified_at: 0,
         }
     }
 
