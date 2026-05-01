@@ -91,6 +91,10 @@ pub enum SearchAction {
     /// surfaces in the notes-search route so users can still reach
     /// the editor from the launcher.
     CreateNewNote,
+    /// Trigger a re-index of files. Surfaces in the files route as
+    /// the "Re-index files now" affordance so a user with an empty
+    /// file index can populate it without leaving the launcher.
+    ReindexFiles,
 }
 
 pub struct SearchEngine {
