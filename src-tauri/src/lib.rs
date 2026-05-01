@@ -391,11 +391,6 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         }
     }
 
-    // WAT-306: `>`-prefixed queries are handled exclusively by
-    // `system_commands_route_results` above. The Passthrough branch runs
-    // fuzzy match over apps + web searches only, so `sleep` (no prefix)
-    // still surfaces a matching app but never a SystemCommand result.
-
     // WAT-301: add snippets whose trigger/name matches the query. Runs
     // as a regular search-pipeline contributor alongside apps and web —
     // no special prefix. Users who want scoped lookup can use a
@@ -423,9 +418,6 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 
     // Add apps
     if !query.contains(' ') || items.is_empty() {
-        // WAT-201: compute the usage bonus once for the whole loop; `now`
-        // is shared across items so relative ordering is consistent even
-        // if the loop takes a few ms at the edge of a second.
         let now = chrono::Utc::now().timestamp();
         let use_frequency_ranking = settings.search.use_frequency_ranking;
         for app in apps.iter() {
@@ -472,10 +464,7 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 
     // Gemini Improvement #2: Add files with frecency bonus.
     if let Ok(files) = state.file_search.get_recent(50) {
-        let now = chrono::Utc::now().timestamp();
         for file in files {
-            // We need file open stats here. This requires a small change to
-            // FileSearchManager to return stats. For now, we'll use 0.0.
             items.push(SearchResult {
                 id: file.id.clone(),
                 name: file.name,

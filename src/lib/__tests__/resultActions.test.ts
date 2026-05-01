@@ -13,6 +13,7 @@ function r(action: SearchResult['action']): SearchResult {
     icon: null,
     result_type: 'application',
     score: 0,
+    usage_bonus: 0,
     action,
   };
 }
