@@ -9,6 +9,9 @@ pub struct WindowEntry {
 }
 
 #[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
 pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
     // PowerShell script to list windows with titles.
     // Filtering out windows with empty titles and specific system processes.
@@ -18,8 +21,10 @@ pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
         ConvertTo-Json -Compress
     "#;
 
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let output = Command::new("powershell")
         .args(["-NoProfile", "-Command", script])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -76,8 +81,10 @@ pub fn focus_window(pid: u32) -> Result<(), String> {
         pid
     );
 
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     Command::new("powershell")
         .args(["-NoProfile", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| e.to_string())?;
 

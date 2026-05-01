@@ -543,6 +543,8 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
 /// clipboard and the user can paste manually.
 #[cfg(target_os = "windows")]
 fn paste_snippet_via_os() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     // A tiny start-sleep gives the previously-focused window time to
     // fully regain focus after Watson hides. SendKeys fires Ctrl+V.
     std::process::Command::new("powershell")
@@ -553,6 +555,7 @@ fn paste_snippet_via_os() -> Result<(), String> {
             "-Command",
             "Start-Sleep -Milliseconds 80; (New-Object -ComObject WScript.Shell).SendKeys('^v')",
         ])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
