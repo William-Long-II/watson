@@ -59,6 +59,11 @@ pub enum ResultType {
     Snippet,
     /// Gemini Improvement #6: an open window that can be switched to.
     OpenWindow,
+    /// A specific browser tab inside an open browser window. Surfaced
+    /// via UIA enumeration of the tab strip; selecting one invokes
+    /// `SelectionItemPattern.Select()` on the underlying TabItem and
+    /// brings the parent window to front.
+    BrowserTab,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +82,10 @@ pub enum SearchAction {
     /// serialized as i64 — fits in JSON's safe-integer range because
     /// user-mode HWNDs stay under 2^53 on Windows.)
     FocusWindow { hwnd: i64 },
+    /// Switch to a specific browser tab inside an open browser window.
+    /// `hwnd` is the parent window; `index` is the tab's position in
+    /// the strip at enumeration time.
+    FocusBrowserTab { hwnd: i64, index: i32 },
 }
 
 pub struct SearchEngine {

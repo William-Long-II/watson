@@ -3,7 +3,7 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window' | 'browser_tab';
   /** The primary fuzzy-match score from the backend engine. */
   score: number;
   /** Gemini Improvement #2: secondary frecency score (frequency + recency). */
@@ -23,7 +23,8 @@ export type SearchAction =
   | { type: 'open_note'; note_id: string }
   | { type: 'open_file'; path: string }
   | { type: 'paste_snippet'; expansion: string }
-  | { type: 'focus_window'; hwnd: number };
+  | { type: 'focus_window'; hwnd: number }
+  | { type: 'focus_browser_tab'; hwnd: number; index: number };
 
 export interface Snippet {
   id: string;

@@ -1,3 +1,4 @@
+pub mod browser_tabs;
 pub mod system;
 pub mod window;
 pub mod windows;

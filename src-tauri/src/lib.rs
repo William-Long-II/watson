@@ -446,6 +446,40 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     // Gemini Improvement #6: Add open windows to search results.
     if let Ok(windows) = actions::windows::get_open_windows() {
         for window in windows {
+            // For browser windows, also surface every tab as its own
+            // switcher row via UIA. The window-level row stays in the
+            // list — selecting it focuses the window without changing
+            // the active tab. Selecting a tab row activates that tab.
+            let is_browser = actions::browser_tabs::is_browser_process(&window.process_name);
+            if is_browser {
+                if let Ok(tabs) =
+                    actions::browser_tabs::get_browser_tabs(window.hwnd, &window.process_name)
+                {
+                    for tab in tabs {
+                        items.push(SearchResult {
+                            // Composite id: window HWND + tab index. Stable
+                            // for React keying within a single enum.
+                            id: format!("tab:{:x}:{}", tab.window_hwnd, tab.index),
+                            name: tab.name.clone(),
+                            description: format!("Tab in {}", tab.process_name),
+                            icon: Some("browser_tab".to_string()),
+                            result_type: ResultType::BrowserTab,
+                            // Rank tabs slightly above plain windows so
+                            // when both match, the more specific tab
+                            // surfaces first.
+                            score: 200,
+                            frecency_score: 0.0,
+                            preview: None,
+                            pinned: false,
+                            action: SearchAction::FocusBrowserTab {
+                                hwnd: tab.window_hwnd,
+                                index: tab.index,
+                            },
+                        });
+                    }
+                }
+            }
+
             items.push(SearchResult {
                 // HWND is unique per window; using it as the id means
                 // multi-window apps (Brave with three browser windows,
@@ -537,6 +571,9 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             paste_snippet_via_os()
         }
         SearchAction::FocusWindow { hwnd } => actions::windows::focus_window(hwnd),
+        SearchAction::FocusBrowserTab { hwnd, index } => {
+            actions::browser_tabs::focus_browser_tab(hwnd, index)
+        }
     }
 }
 

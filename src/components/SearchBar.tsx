@@ -11,7 +11,6 @@ export function SearchBar() {
     executeSelected,
     hideWindow,
     setShowScratchpad,
-    openNewNote,
     actionMenuOpen,
     toggleActionMenu,
     closeActionMenu,
@@ -59,32 +58,31 @@ export function SearchBar() {
       return;
     }
 
-    // Chained shortcuts when search is empty
-    if (query === '') {
-      // Scratchpad trigger: 's' or '`'
-      if (e.key === 's' || e.key === '`') {
-        e.preventDefault();
-        setShowScratchpad(true);
-        return;
-      }
-      // New note trigger: 'n' (shift+n for search mode)
-      if (e.key === 'n' && !e.shiftKey) {
-        e.preventDefault();
-        openNewNote();
-        return;
-      }
-      // Notes search: 'N' (shift+n)
-      if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
-        e.preventDefault();
-        setQuery('n ');
-        return;
-      }
-      // Files search: 'f'
-      if (e.key === 'f') {
-        e.preventDefault();
-        setQuery('f ');
-        return;
-      }
+    // Empty-query shortcuts. Single-letter shortcuts used to be:
+    //   s        → scratchpad
+    //   n        → new note editor
+    //   N / n+⇧  → write 'n ' (notes search prefix)
+    //   f        → write 'f ' (files search prefix)
+    // The problem: those single keystrokes ate ANY search starting
+    // with that letter. Tab named "Slack" → press s → scratchpad.
+    // Search for "Notion" → press n → new note editor. Etc.
+    //
+    // The fix: bare letters now flow into the query like normal.
+    // Shortcuts require a discriminator:
+    //   `        → scratchpad (backtick alone, since it's rare in
+    //              real searches it can stay as a single-key shortcut)
+    //   's '     → scratchpad (typed two chars; intercepted in store
+    //              setQuery so the 's ' is never sent to the backend)
+    //   'n '     → notes search (already a backend route — works)
+    //   'f '     → files search (already a backend route — works)
+    //
+    // The bare-`n` (open new note editor) shortcut goes away here;
+    // typing `n ` shows recent notes, and a "Create new note" entry
+    // can be added there as a follow-up.
+    if (query === '' && e.key === '`') {
+      e.preventDefault();
+      setShowScratchpad(true);
+      return;
     }
 
     switch (e.key) {
