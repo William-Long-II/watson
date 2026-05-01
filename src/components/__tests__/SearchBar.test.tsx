@@ -164,20 +164,16 @@ describe('SearchBar keyboard contract', () => {
     expect(hideCall, 'hide_window should be called when query was empty').toBeDefined();
   });
 
-  // --- empty-query shortcuts (post-letter+space rework) ---
+  // --- empty-query chained shortcuts ---
   //
-  // Bare-letter shortcuts used to fire on a single keystroke from
-  // empty: `s` → scratchpad, `n` → new note, `N` → notes search,
-  // `f` → files search. They were removed because they ate any
-  // search starting with that letter (a tab named "Slack" was
-  // unreachable; typing "Notion" opened the new-note editor).
+  // Bare-`s` used to open the scratchpad on a single keystroke. That
+  // ate searches starting with `s` (a tab named "Slack" was
+  // unreachable), so it's gone. Scratchpad is now triggered by `` ` ``
+  // (single key, rare enough in real text to be safe) or `s ` (s +
+  // space, intercepted in the store's setQuery).
   //
-  // Now: bare letters flow into the query like normal. Discriminated
-  // shortcuts:
-  //   `        → scratchpad (single-key OK; rare in real searches)
-  //   's '     → scratchpad (typed two chars; intercepted in store)
-  //   'n '     → notes search (existing backend route, unchanged)
-  //   'f '     → files search (existing backend route, unchanged)
+  // The other shortcuts (`n` / `N` / `f`) stay as-is — high-utility
+  // muscle memory; their conflict cost is lower than `s` was.
 
   it('typing backtick on an empty query opens the scratchpad', async () => {
     const user = userEvent.setup();
@@ -195,7 +191,7 @@ describe('SearchBar keyboard contract', () => {
 
     await user.keyboard('s');
 
-    // 's' is now a normal search character; scratchpad does NOT open.
+    // Bare 's' is now a normal search char; scratchpad does NOT open.
     expect(useAppStore.getState().scratchpadVisible).toBe(false);
     expect(useAppStore.getState().query).toBe('s');
   });
@@ -206,33 +202,40 @@ describe('SearchBar keyboard contract', () => {
 
     await user.keyboard('s ');
 
-    // After the space, the store's setQuery interceptor fires the
-    // shortcut and clears the input — same end state as the old
-    // single-key trigger, just discriminated.
+    // Two-char trigger is intercepted in the store's setQuery —
+    // 's ' never reaches the backend.
     expect(useAppStore.getState().scratchpadVisible).toBe(true);
     expect(useAppStore.getState().query).toBe('');
   });
 
-  it("typing 'n' alone leaves it as part of the search query (no editor)", async () => {
+  it("typing 'n' on an empty query opens a new note", async () => {
     const user = userEvent.setup();
     render(<SearchBar />);
 
     await user.keyboard('n');
 
-    // 'n' no longer opens the new note editor — flows into the query.
-    expect(useAppStore.getState().noteEditorVisible).toBe(false);
-    expect(useAppStore.getState().query).toBe('n');
+    expect(useAppStore.getState().noteEditorVisible).toBe(true);
+    expect(useAppStore.getState().currentNote).toBeNull();
+    expect(useAppStore.getState().query).toBe('');
   });
 
-  it("typing 'f' alone leaves it as part of the search query", async () => {
+  it("Shift+n on an empty query enters notes-search mode ('n ')", async () => {
+    const user = userEvent.setup();
+    render(<SearchBar />);
+
+    await user.keyboard('{Shift>}n{/Shift}');
+
+    expect(useAppStore.getState().query).toBe('n ');
+    expect(useAppStore.getState().noteEditorVisible).toBe(false);
+  });
+
+  it("typing 'f' on an empty query enters files-search mode ('f ')", async () => {
     const user = userEvent.setup();
     render(<SearchBar />);
 
     await user.keyboard('f');
 
-    // 'f' no longer auto-writes 'f '; user types the space themselves
-    // when they want files-search mode.
-    expect(useAppStore.getState().query).toBe('f');
+    expect(useAppStore.getState().query).toBe('f ');
   });
 
   // --- shortcut suppression once the query has content ---

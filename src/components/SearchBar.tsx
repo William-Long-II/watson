@@ -11,6 +11,7 @@ export function SearchBar() {
     executeSelected,
     hideWindow,
     setShowScratchpad,
+    openNewNote,
     actionMenuOpen,
     toggleActionMenu,
     closeActionMenu,
@@ -58,31 +59,43 @@ export function SearchBar() {
       return;
     }
 
-    // Empty-query shortcuts. Single-letter shortcuts used to be:
-    //   s        → scratchpad
-    //   n        → new note editor
-    //   N / n+⇧  → write 'n ' (notes search prefix)
-    //   f        → write 'f ' (files search prefix)
-    // The problem: those single keystrokes ate ANY search starting
-    // with that letter. Tab named "Slack" → press s → scratchpad.
-    // Search for "Notion" → press n → new note editor. Etc.
-    //
-    // The fix: bare letters now flow into the query like normal.
-    // Shortcuts require a discriminator:
-    //   `        → scratchpad (backtick alone, since it's rare in
-    //              real searches it can stay as a single-key shortcut)
-    //   's '     → scratchpad (typed two chars; intercepted in store
-    //              setQuery so the 's ' is never sent to the backend)
-    //   'n '     → notes search (already a backend route — works)
-    //   'f '     → files search (already a backend route — works)
-    //
-    // The bare-`n` (open new note editor) shortcut goes away here;
-    // typing `n ` shows recent notes, and a "Create new note" entry
-    // can be added there as a follow-up.
-    if (query === '' && e.key === '`') {
-      e.preventDefault();
-      setShowScratchpad(true);
-      return;
+    // Empty-query chained shortcuts. Originally bare-`s` was here too
+    // but it ate any search starting with `s` (a tab named "Slack"
+    // was unreachable), so scratchpad's bare-letter trigger is gone.
+    // The other shortcuts stayed — they're high-utility one-key
+    // muscle memory; the conflict cost is low because `n`/`f`-prefixed
+    // searches are rarer than `s`-prefixed ones in practice.
+    //   `        → scratchpad (backtick is rare in real text)
+    //   's '     → scratchpad (intercepted in store setQuery; bare
+    //              's' now flows into the query as a normal char)
+    //   'n'      → open new-note editor
+    //   'N'/⇧+n  → write 'n ' (notes-search prefix)
+    //   'f'      → write 'f ' (files-search prefix)
+    if (query === '') {
+      // Scratchpad trigger: backtick only (bare-`s` removed).
+      if (e.key === '`') {
+        e.preventDefault();
+        setShowScratchpad(true);
+        return;
+      }
+      // New-note trigger: bare 'n' (no shift).
+      if (e.key === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        openNewNote();
+        return;
+      }
+      // Notes-search prefix: shift+n / 'N'.
+      if (e.key === 'N' || (e.key === 'n' && e.shiftKey)) {
+        e.preventDefault();
+        setQuery('n ');
+        return;
+      }
+      // Files-search prefix: 'f'.
+      if (e.key === 'f') {
+        e.preventDefault();
+        setQuery('f ');
+        return;
+      }
     }
 
     switch (e.key) {
