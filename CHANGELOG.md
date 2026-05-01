@@ -8,7 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
-## [1.3.0] - 2025-12-31
+## [1.4.0] - 2026-05-01
+
+### Added
+- **Gemini Improvements**:
+  - **Background File I/O** - Note saving and loading now happen on a background thread for zero UI lag.
+  - **Frecency Ranking** - Search results for apps and files are intelligently ranked by both usage frequency and recency.
+  - **'Switch to' Windows** - Open windows and browser tabs now appear in search results, allowing instant focus instead of re-launching.
+  - **Note Previews** - Inline content snippets in search results give a quick peek into your note contents.
+  - **Transactional Integrity** - Guaranteed synchronization between the database and markdown files for notes.
+  - **Auto Icon Refresh** - Icons are automatically re-extracted and updated whenever an application is patched by the OS.
+- **Snippets** - User-defined text expansion with `;` trigger support and cross-platform paste (WAT-301).
+- **Secondary Actions** - Per-result Cmd+K menu for advanced actions like "Reveal in folder" and "Copy path" (WAT-404).
+- **Notifications Drawer** - A persistent history of non-fatal events and startup warnings (WAT-406).
+- **Window Management** - New system commands for window tiling (`split-left`, `maximize`, `center`, etc.) (WAT-302).
+- **Clipboard Pinning** - Persist important clipboard entries across restarts (WAT-303).
+- **Clipboard Privacy** - Configurable regex patterns to automatically exclude sensitive data from clipboard history (WAT-303).
+- **Confirmation Modals** - Safeguards for destructive actions like deleting notes or clearing history (WAT-405).
+
+### Changed
+- **Responsive Layout** - Window width now scales based on monitor resolution; window re-centers on activation (WAT-407).
+- **A11y Enhancements** - Comprehensive accessibility audit: improved ARIA roles, combobox semantics, and keyboard navigation (WAT-402).
+
+### Technical
+- Migrated to asynchronous note storage using `tokio`.
+- Implemented SQLite migration framework v006.
+- Added platform shims for window enumeration and focusing.
 
 ### Added
 - **Notes** - Create, edit, and search markdown notes with `n` prefix (e.g., `n meeting`)
