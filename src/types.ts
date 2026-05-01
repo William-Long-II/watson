@@ -23,7 +23,7 @@ export type SearchAction =
   | { type: 'open_note'; note_id: string }
   | { type: 'open_file'; path: string }
   | { type: 'paste_snippet'; expansion: string }
-  | { type: 'focus_window'; pid: number };
+  | { type: 'focus_window'; hwnd: number };
 
 export interface Snippet {
   id: string;

@@ -161,10 +161,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
 
-      // Hide window first, then execute action
-      set({ query: '', results: [], selectedIndex: 0 });
-      await hideWindow();
-      await invoke('execute_action', { action: selected.action });
+      // Hide window first, then execute action (except for focus_window which needs foreground)
+      if (selected.action.type === 'focus_window') {
+        await invoke('execute_action', { action: selected.action });
+        set({ query: '', results: [], selectedIndex: 0 });
+        await hideWindow();
+      } else {
+        set({ query: '', results: [], selectedIndex: 0 });
+        await hideWindow();
+        await invoke('execute_action', { action: selected.action });
+      }
     } catch (error) {
       console.error('Failed to execute action:', error);
     }

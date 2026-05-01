@@ -447,7 +447,11 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     if let Ok(windows) = actions::windows::get_open_windows() {
         for window in windows {
             items.push(SearchResult {
-                id: format!("win:{}", window.pid),
+                // HWND is unique per window; using it as the id means
+                // multi-window apps (Brave with three browser windows,
+                // VS Code with two projects) get distinct switcher rows
+                // instead of collapsing into one.
+                id: format!("win:{:x}", window.hwnd),
                 name: window.title,
                 description: format!("Switch to {}", window.process_name),
                 icon: Some("window".to_string()),
@@ -457,7 +461,7 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
                 frecency_score: 0.0,
                 preview: None,
                 pinned: false,
-                action: SearchAction::FocusWindow { pid: window.pid },
+                action: SearchAction::FocusWindow { hwnd: window.hwnd },
             });
         }
     }
@@ -532,7 +536,7 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             state.clipboard.copy_to_clipboard(&expansion)?;
             paste_snippet_via_os()
         }
-        SearchAction::FocusWindow { pid } => actions::windows::focus_window(pid),
+        SearchAction::FocusWindow { hwnd } => actions::windows::focus_window(hwnd),
     }
 }
 
