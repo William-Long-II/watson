@@ -174,6 +174,32 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
 
+      // The "Create new note" pseudo-result in the notes route fires this.
+      // Frontend-only action: clear the query and open the editor with a
+      // blank note.
+      if (selected.action.type === 'create_new_note') {
+        set({ query: '', results: [], selectedIndex: 0 });
+        get().openNewNote();
+        return;
+      }
+
+      // The "Re-index files now" pseudo-result. Run the backend
+      // re-index, then re-fire the current notes/files query so the
+      // user immediately sees whatever just got indexed (or, if
+      // nothing did, the same affordance is still there to retry).
+      if (selected.action.type === 'reindex_files') {
+        const currentQuery = get().query;
+        try {
+          await invoke('execute_action', { action: selected.action });
+        } catch (e) {
+          console.error('Re-index files failed:', e);
+        }
+        // Refresh — fire the same query through the pipeline so
+        // freshly-indexed files surface without the user retyping.
+        await get().setQuery(currentQuery);
+        return;
+      }
+
       // Hide window first, then execute action (except for focus_window which needs foreground)
       if (selected.action.type === 'focus_window') {
         await invoke('execute_action', { action: selected.action });

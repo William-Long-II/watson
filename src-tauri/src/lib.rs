@@ -118,7 +118,7 @@ async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
         SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8).await,
         SubQuery::Search(q) => state.notes.search(&q).await,
     };
-    notes_res
+    let mut out: Vec<SearchResult> = notes_res
         .map(|notes| {
             notes
                 .into_iter()
@@ -137,7 +137,28 @@ async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    // Always surface a "Create new note" entry in the notes route.
+    // This is the replacement for the bare-`n` keyboard shortcut that
+    // used to open the editor — without it, a user with zero notes
+    // who types `n` sees an empty list and can't tell that the route
+    // even fired.
+    out.push(SearchResult {
+        id: "note:__create__".to_string(),
+        name: "Create new note".to_string(),
+        description: "Open the editor with an empty note".to_string(),
+        icon: Some("note_new".to_string()),
+        result_type: ResultType::Note,
+        // Lower than recent notes (10000) so it sorts to the bottom
+        // when notes exist, but is the only result when they don't.
+        score: 1,
+        frecency_score: 0.0,
+        preview: None,
+        pinned: false,
+        action: SearchAction::CreateNewNote,
+    });
+    out
 }
 
 async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
@@ -146,7 +167,7 @@ async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
         SubQuery::Search(ref q) if q.is_empty() => state.file_search.get_recent(8),
         SubQuery::Search(q) => state.file_search.search(&q, 8),
     };
-    files
+    let mut out: Vec<SearchResult> = files
         .map(|files| {
             files
                 .into_iter()
@@ -164,7 +185,27 @@ async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    // Always surface a "Re-index files now" affordance — same pattern
+    // as the notes route's "Create new note". A user with an empty
+    // file index types `f` and otherwise sees nothing; this entry
+    // makes the empty-state visible and gives them a one-click path
+    // to populate the index from whatever paths are configured in
+    // Settings.
+    out.push(SearchResult {
+        id: "file:__reindex__".to_string(),
+        name: "Re-index files now".to_string(),
+        description: "Re-scan the configured indexed paths".to_string(),
+        icon: Some("file_reindex".to_string()),
+        result_type: ResultType::File,
+        score: 1, // sorts to the bottom when real files exist
+        frecency_score: 0.0,
+        preview: None,
+        pinned: false,
+        action: SearchAction::ReindexFiles,
+    });
+    out
 }
 
 /// Wrap a successful calculation into the single `SearchResult` the UI
@@ -573,6 +614,29 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::FocusWindow { hwnd } => actions::windows::focus_window(hwnd),
         SearchAction::FocusBrowserTab { hwnd, index } => {
             actions::browser_tabs::focus_browser_tab(hwnd, index)
+        }
+        // Frontend handles `CreateNewNote` directly (opens the editor
+        // panel). If it ever reaches the backend, that's a frontend
+        // routing bug — return Ok so the user doesn't see an error
+        // toast for what's effectively a no-op.
+        SearchAction::CreateNewNote => Ok(()),
+        // Trigger file re-index. Frontend will refresh the search
+        // results once this returns so the newly-indexed files
+        // surface immediately.
+        SearchAction::ReindexFiles => {
+            let settings = state.settings.read().unwrap();
+            if !settings.file_search.enabled {
+                return Err("File search is disabled in Settings".to_string());
+            }
+            state.file_search.reset_cancel();
+            let indexer = files::indexer::FileIndexer::new(
+                Arc::clone(&state.file_search),
+                settings.file_search.indexed_paths.clone(),
+                settings.file_search.excluded_patterns.clone(),
+                settings.file_search.max_depth,
+            );
+            indexer.index_all();
+            Ok(())
         }
     }
 }
