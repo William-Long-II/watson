@@ -73,8 +73,10 @@ pub enum SearchAction {
     /// WAT-301: copy `expansion` to the clipboard and synthesize a
     /// paste into the prior-focused window.
     PasteSnippet { expansion: String },
-    /// Gemini Improvement #6: focus an existing window by PID.
-    FocusWindow { pid: u32 },
+    /// Focus an existing top-level window by HWND. (HWND is a pointer
+    /// serialized as i64 — fits in JSON's safe-integer range because
+    /// user-mode HWNDs stay under 2^53 on Windows.)
+    FocusWindow { hwnd: i64 },
 }
 
 pub struct SearchEngine {
