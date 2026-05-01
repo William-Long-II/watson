@@ -174,6 +174,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
 
+      // The "Create new note" pseudo-result in the notes route fires this.
+      // Frontend-only action: clear the query and open the editor with a
+      // blank note.
+      if (selected.action.type === 'create_new_note') {
+        set({ query: '', results: [], selectedIndex: 0 });
+        get().openNewNote();
+        return;
+      }
+
       // Hide window first, then execute action (except for focus_window which needs foreground)
       if (selected.action.type === 'focus_window') {
         await invoke('execute_action', { action: selected.action });

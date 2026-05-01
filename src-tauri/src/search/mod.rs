@@ -86,6 +86,11 @@ pub enum SearchAction {
     /// `hwnd` is the parent window; `index` is the tab's position in
     /// the strip at enumeration time.
     FocusBrowserTab { hwnd: i64, index: i32 },
+    /// Open the new-note editor with an empty buffer. Replaces the
+    /// removed bare-`n` keyboard shortcut: a "Create new note" entry
+    /// surfaces in the notes-search route so users can still reach
+    /// the editor from the launcher.
+    CreateNewNote,
 }
 
 pub struct SearchEngine {

@@ -118,7 +118,7 @@ async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
         SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8).await,
         SubQuery::Search(q) => state.notes.search(&q).await,
     };
-    notes_res
+    let mut out: Vec<SearchResult> = notes_res
         .map(|notes| {
             notes
                 .into_iter()
@@ -137,7 +137,28 @@ async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    // Always surface a "Create new note" entry in the notes route.
+    // This is the replacement for the bare-`n` keyboard shortcut that
+    // used to open the editor — without it, a user with zero notes
+    // who types `n` sees an empty list and can't tell that the route
+    // even fired.
+    out.push(SearchResult {
+        id: "note:__create__".to_string(),
+        name: "Create new note".to_string(),
+        description: "Open the editor with an empty note".to_string(),
+        icon: Some("note_new".to_string()),
+        result_type: ResultType::Note,
+        // Lower than recent notes (10000) so it sorts to the bottom
+        // when notes exist, but is the only result when they don't.
+        score: 1,
+        frecency_score: 0.0,
+        preview: None,
+        pinned: false,
+        action: SearchAction::CreateNewNote,
+    });
+    out
 }
 
 async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
@@ -574,6 +595,11 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::FocusBrowserTab { hwnd, index } => {
             actions::browser_tabs::focus_browser_tab(hwnd, index)
         }
+        // Frontend handles `CreateNewNote` directly (opens the editor
+        // panel). If it ever reaches the backend, that's a frontend
+        // routing bug — return Ok so the user doesn't see an error
+        // toast for what's effectively a no-op.
+        SearchAction::CreateNewNote => Ok(()),
     }
 }
 
