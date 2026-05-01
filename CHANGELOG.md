@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Browser Tab Switching** - Browser tabs (Brave, Chrome, Edge, Firefox, Vivaldi, Opera, Arc) now appear individually in search results. Selecting one calls UIA `SelectionItemPattern.Select()` on the underlying TabItem and brings the parent window forward.
+- **Multi-Window Switcher** - Each open window of an app surfaces as its own row instead of one-per-process. Switcher uses Win32 `EnumWindows` with a filter pipeline (visible / non-toolwindow / titled / non-cloaked).
+- **Empty-State Affordances** - The notes route always surfaces a "Create new note" entry, and the files route always surfaces a "Re-index files now" entry, so users with empty databases have a discoverable next step.
+
+### Fixed
+- **Switch-to-Window on Windows** - `focus_window` now uses direct Win32 FFI (`SetForegroundWindow` + `AttachThreadInput`) instead of a PowerShell shell-out. The previous path could not satisfy Windows' foreground-rights model and silently failed.
+- **Bare-Letter Shortcuts Eating Searches** - Typing a query starting with `n`, `N`, `f`, or `c` no longer triggers the corresponding internal shortcut. The shortcuts now require a trailing space (`n `, `f `, `cb `) so searches like "Slack" or "node" pass through to results. Bare backtick still opens the scratchpad.
 
 ## [1.5.0] - 2026-05-01
 
