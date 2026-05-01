@@ -25,7 +25,8 @@ export type SearchAction =
   | { type: 'paste_snippet'; expansion: string }
   | { type: 'focus_window'; hwnd: number }
   | { type: 'focus_browser_tab'; hwnd: number; index: number }
-  | { type: 'create_new_note' };
+  | { type: 'create_new_note' }
+  | { type: 'reindex_files' };
 
 export interface Snippet {
   id: string;

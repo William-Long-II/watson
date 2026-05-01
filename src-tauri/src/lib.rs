@@ -167,7 +167,7 @@ async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
         SubQuery::Search(ref q) if q.is_empty() => state.file_search.get_recent(8),
         SubQuery::Search(q) => state.file_search.search(&q, 8),
     };
-    files
+    let mut out: Vec<SearchResult> = files
         .map(|files| {
             files
                 .into_iter()
@@ -185,7 +185,27 @@ async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    // Always surface a "Re-index files now" affordance — same pattern
+    // as the notes route's "Create new note". A user with an empty
+    // file index types `f` and otherwise sees nothing; this entry
+    // makes the empty-state visible and gives them a one-click path
+    // to populate the index from whatever paths are configured in
+    // Settings.
+    out.push(SearchResult {
+        id: "file:__reindex__".to_string(),
+        name: "Re-index files now".to_string(),
+        description: "Re-scan the configured indexed paths".to_string(),
+        icon: Some("file_reindex".to_string()),
+        result_type: ResultType::File,
+        score: 1, // sorts to the bottom when real files exist
+        frecency_score: 0.0,
+        preview: None,
+        pinned: false,
+        action: SearchAction::ReindexFiles,
+    });
+    out
 }
 
 /// Wrap a successful calculation into the single `SearchResult` the UI
@@ -600,6 +620,24 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         // routing bug — return Ok so the user doesn't see an error
         // toast for what's effectively a no-op.
         SearchAction::CreateNewNote => Ok(()),
+        // Trigger file re-index. Frontend will refresh the search
+        // results once this returns so the newly-indexed files
+        // surface immediately.
+        SearchAction::ReindexFiles => {
+            let settings = state.settings.read().unwrap();
+            if !settings.file_search.enabled {
+                return Err("File search is disabled in Settings".to_string());
+            }
+            state.file_search.reset_cancel();
+            let indexer = files::indexer::FileIndexer::new(
+                Arc::clone(&state.file_search),
+                settings.file_search.indexed_paths.clone(),
+                settings.file_search.excluded_patterns.clone(),
+                settings.file_search.max_depth,
+            );
+            indexer.index_all();
+            Ok(())
+        }
     }
 }
 
