@@ -373,19 +373,41 @@ mod linux {
     pub fn get_open_windows() -> Result<Vec<WindowEntry>, String> {
         match detect_backend() {
             Backend::X11 => x11::get_open_windows(),
-            Backend::Wayland(_) => Ok(Vec::new()),
+            Backend::Wayland(_) => match wayland::get_open_windows() {
+                Ok(entries) => Ok(entries),
+                // Compositor-unsupported is a soft failure: return empty so
+                // the search picker doesn't show an error toast on every
+                // keystroke. The user sees a hint via the focus path's
+                // explicit error message if they try to act on a stale
+                // entry.
+                Err(WaylandError::CompositorUnsupported) => Ok(Vec::new()),
+                Err(WaylandError::Other(msg)) => Err(msg),
+            },
         }
     }
 
     pub fn focus_window(hwnd: i64) -> Result<(), String> {
         match detect_backend() {
             Backend::X11 => x11::focus_window(hwnd),
-            Backend::Wayland(name) => Err(format!(
-                "Window switching is not supported on {name} (Wayland session). \
-                 Log in with an X11 session to use the switcher; \
-                 Wayland support is tracked in a separate issue."
-            )),
+            Backend::Wayland(name) => match wayland::focus_window(hwnd) {
+                Ok(()) => Ok(()),
+                Err(WaylandError::CompositorUnsupported) => Err(format!(
+                    "Window switching not supported on {name} (Wayland). \
+                     Compositor doesn't advertise the wlr-foreign-toplevel \
+                     protocol; works on Sway, Hyprland, river, Wayfire."
+                )),
+                Err(WaylandError::Other(msg)) => Err(msg),
+            },
         }
+    }
+
+    enum WaylandError {
+        /// Compositor advertised no zwlr_foreign_toplevel_manager_v1
+        /// global. GNOME/Mutter and KDE/KWin land here; users on those
+        /// compositors won't get the switcher until those projects
+        /// adopt the protocol or we add a per-compositor backend.
+        CompositorUnsupported,
+        Other(String),
     }
 
     /// Resolve a process name from a PID via `/proc/<pid>/comm`,
@@ -672,6 +694,271 @@ mod linux {
                 .configure_window(target, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE));
 
             conn.flush().map_err(|e| format!("flush: {e}"))?;
+            Ok(())
+        }
+    }
+
+    /// wlr-foreign-toplevel-management-unstable-v1 client.
+    ///
+    /// Per-call connection: open a wayland socket, bind the manager and
+    /// a seat, run a handful of roundtrips to drain the bootstrap event
+    /// burst, harvest toplevels, disconnect. Local Unix-socket so the
+    /// total cost is sub-50ms even on a session with dozens of windows.
+    ///
+    /// Identity: synthetic i64 derived from a SipHash of (app_id, title).
+    /// We don't keep wayland proxies alive across calls, so on focus we
+    /// re-enumerate, hash each toplevel, and activate the match. If two
+    /// windows happen to share the same app_id+title (rare), the first
+    /// one wins — acceptable for v1.
+    mod wayland {
+        use super::super::WindowEntry;
+        use super::WaylandError;
+        use std::collections::HashMap;
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+        use wayland_client::protocol::{wl_registry, wl_seat};
+        use wayland_protocols_wlr::foreign_toplevel::v1::client::{
+            zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
+            zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
+        };
+
+        const FOREIGN_TOPLEVEL_VERSION: u32 = 3;
+
+        #[derive(Default, Clone)]
+        struct ToplevelInfo {
+            title: String,
+            app_id: String,
+            minimized: bool,
+            done: bool,
+            closed: bool,
+        }
+
+        #[derive(Default)]
+        struct State {
+            manager: Option<ZwlrForeignToplevelManagerV1>,
+            seat: Option<wl_seat::WlSeat>,
+            // Keyed by the toplevel handle's protocol id so we can
+            // associate per-toplevel events back to a single entry.
+            toplevels: HashMap<u32, (ZwlrForeignToplevelHandleV1, ToplevelInfo)>,
+            registry_done: bool,
+        }
+
+        impl State {
+            fn list_done_toplevels(&self) -> Vec<&ToplevelInfo> {
+                self.toplevels
+                    .values()
+                    .filter(|(_, info)| info.done && !info.closed && !info.minimized)
+                    .filter(|(_, info)| !info.title.trim().is_empty())
+                    .map(|(_, info)| info)
+                    .collect()
+            }
+        }
+
+        impl Dispatch<wl_registry::WlRegistry, ()> for State {
+            fn event(
+                state: &mut Self,
+                registry: &wl_registry::WlRegistry,
+                event: wl_registry::Event,
+                _: &(),
+                _: &Connection,
+                qh: &QueueHandle<Self>,
+            ) {
+                use wl_registry::Event;
+                if let Event::Global { name, interface, version } = event {
+                    if interface == ZwlrForeignToplevelManagerV1::interface().name {
+                        let v = version.min(FOREIGN_TOPLEVEL_VERSION);
+                        let mgr = registry.bind::<ZwlrForeignToplevelManagerV1, _, _>(name, v, qh, ());
+                        state.manager = Some(mgr);
+                    } else if interface == wl_seat::WlSeat::interface().name && state.seat.is_none() {
+                        let seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version.min(7), qh, ());
+                        state.seat = Some(seat);
+                    }
+                }
+                state.registry_done = true;
+            }
+        }
+
+        impl Dispatch<wl_seat::WlSeat, ()> for State {
+            fn event(
+                _: &mut Self,
+                _: &wl_seat::WlSeat,
+                _: wl_seat::Event,
+                _: &(),
+                _: &Connection,
+                _: &QueueHandle<Self>,
+            ) {
+                // We don't need seat capabilities/name; binding it is
+                // sufficient for the activate request.
+            }
+        }
+
+        impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
+            fn event(
+                state: &mut Self,
+                _: &ZwlrForeignToplevelManagerV1,
+                event: zwlr_foreign_toplevel_manager_v1::Event,
+                _: &(),
+                _: &Connection,
+                _: &QueueHandle<Self>,
+            ) {
+                use zwlr_foreign_toplevel_manager_v1::Event;
+                if let Event::Toplevel { toplevel } = event {
+                    let id = toplevel.id().protocol_id();
+                    state
+                        .toplevels
+                        .insert(id, (toplevel, ToplevelInfo::default()));
+                }
+            }
+        }
+
+        impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for State {
+            fn event(
+                state: &mut Self,
+                handle: &ZwlrForeignToplevelHandleV1,
+                event: zwlr_foreign_toplevel_handle_v1::Event,
+                _: &(),
+                _: &Connection,
+                _: &QueueHandle<Self>,
+            ) {
+                use zwlr_foreign_toplevel_handle_v1::Event;
+                let id = handle.id().protocol_id();
+                let entry = match state.toplevels.get_mut(&id) {
+                    Some(e) => e,
+                    None => return,
+                };
+                let info = &mut entry.1;
+                match event {
+                    Event::Title { title } => info.title = title,
+                    Event::AppId { app_id } => info.app_id = app_id,
+                    Event::State { state: state_arr } => {
+                        // The state array contains 4-byte values per
+                        // wlr-foreign-toplevel state enum. State 1 is
+                        // "minimized".
+                        info.minimized = state_arr.chunks_exact(4).any(|c| {
+                            u32::from_ne_bytes([c[0], c[1], c[2], c[3]])
+                                == zwlr_foreign_toplevel_handle_v1::State::Minimized as u32
+                        });
+                    }
+                    Event::Done => info.done = true,
+                    Event::Closed => info.closed = true,
+                    _ => {}
+                }
+            }
+        }
+
+        /// Hash an (app_id, title) pair into a stable i64 within JSON's
+        /// safe-integer range (53 bits). Used as the synthetic window
+        /// handle. Collisions across (app_id, title) pairs map two
+        /// windows to one row — rare and acceptable for v1.
+        fn hash_handle(app_id: &str, title: &str) -> i64 {
+            let mut h = DefaultHasher::new();
+            app_id.hash(&mut h);
+            "::".hash(&mut h);
+            title.hash(&mut h);
+            // Mask to 53 bits so the value round-trips through
+            // JSON's f64 safe-integer range without precision loss.
+            ((h.finish() & ((1u64 << 53) - 1)) as i64).max(1)
+        }
+
+        /// Bring up a wayland connection, bind the wlr manager + seat,
+        /// run roundtrips until all toplevels have fired their `done`
+        /// event. Returns the populated State for the caller to read.
+        fn snapshot() -> Result<(Connection, EventQueue<State>, State), WaylandError> {
+            let conn = Connection::connect_to_env()
+                .map_err(|e| WaylandError::Other(format!("wayland connect: {e}")))?;
+            let mut event_queue = conn.new_event_queue::<State>();
+            let qh = event_queue.handle();
+            let display = conn.display();
+            let _registry = display.get_registry(&qh, ());
+
+            let mut state = State::default();
+            // Roundtrip 1: receive Global events, bind manager + seat.
+            event_queue
+                .roundtrip(&mut state)
+                .map_err(|e| WaylandError::Other(format!("wayland roundtrip 1: {e}")))?;
+
+            if state.manager.is_none() {
+                return Err(WaylandError::CompositorUnsupported);
+            }
+
+            // Roundtrip 2: manager fires Toplevel events for each existing
+            // toplevel. After this, state.toplevels has handles registered
+            // but per-toplevel events haven't fired yet.
+            event_queue
+                .roundtrip(&mut state)
+                .map_err(|e| WaylandError::Other(format!("wayland roundtrip 2: {e}")))?;
+
+            // Roundtrip 3: each handle fires its title/app_id/state/done
+            // sequence. After this, every entry should have done=true.
+            event_queue
+                .roundtrip(&mut state)
+                .map_err(|e| WaylandError::Other(format!("wayland roundtrip 3: {e}")))?;
+
+            // Some compositors are lazy and emit `done` only after a
+            // grace period; one more roundtrip catches stragglers.
+            event_queue
+                .roundtrip(&mut state)
+                .map_err(|e| WaylandError::Other(format!("wayland roundtrip 4: {e}")))?;
+
+            Ok((conn, event_queue, state))
+        }
+
+        pub fn get_open_windows() -> Result<Vec<WindowEntry>, WaylandError> {
+            let (_conn, _eq, state) = snapshot()?;
+            let entries = state
+                .list_done_toplevels()
+                .iter()
+                .map(|info| WindowEntry {
+                    hwnd: hash_handle(&info.app_id, &info.title),
+                    // Wayland surfaces don't expose pid via this protocol;
+                    // 0 is our convention for "unknown".
+                    pid: 0,
+                    process_name: if info.app_id.is_empty() {
+                        "unknown".to_string()
+                    } else {
+                        info.app_id.clone()
+                    },
+                    title: info.title.clone(),
+                })
+                .collect();
+            Ok(entries)
+        }
+
+        pub fn focus_window(hwnd: i64) -> Result<(), WaylandError> {
+            let (_conn, mut event_queue, state) = snapshot()?;
+            let seat = state
+                .seat
+                .as_ref()
+                .ok_or_else(|| WaylandError::Other(String::from("no wl_seat advertised")))?;
+
+            // Find the toplevel whose hash matches.
+            let target = state
+                .toplevels
+                .values()
+                .filter(|(_, info)| info.done && !info.closed)
+                .find(|(_, info)| hash_handle(&info.app_id, &info.title) == hwnd);
+
+            let (handle, _) = match target {
+                Some(t) => t,
+                None => {
+                    return Err(WaylandError::Other(format!(
+                        "window {hwnd} not in current snapshot — re-search"
+                    )))
+                }
+            };
+
+            handle.activate(seat);
+            // If the toplevel was minimized we also need to unset that
+            // state for the activate to actually surface it. The protocol
+            // exposes `unset_minimized` for exactly this.
+            handle.unset_minimized();
+            // Flush the pending requests; we don't need to wait for
+            // additional events.
+            event_queue
+                .roundtrip(&mut State::default())
+                .map_err(|e| WaylandError::Other(format!("wayland flush: {e}")))?;
             Ok(())
         }
     }

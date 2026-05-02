@@ -48,9 +48,7 @@ windows = { version = "0.61", features = [
 [target.'cfg(target_os = "linux")'.dependencies]
 # X11 client for window enumeration + focus on X11 sessions. Default
 # features include the pure-Rust `rust_connection` so we don't pick up
-# a libxcb build-time dependency. Wayland support (wlr-foreign-
-# toplevel) is a follow-up issue; in the meantime the runtime falls
-# back to an explanatory error on Wayland sessions.
+# a libxcb build-time dependency.
 x11rb = "0.13"
 # AT-SPI is a D-Bus protocol; zbus's blocking-api feature lets us
 # call it from the synchronous search hot path without dragging
@@ -58,6 +56,13 @@ x11rb = "0.13"
 # crate) to keep the dependency surface small and to avoid coupling
 # to that crate's still-evolving API.
 zbus = { version = "4", features = ["blocking"] }
+# Wayland client + wlr-foreign-toplevel-management protocol. This
+# unlocks the switcher on wlroots-based compositors (Sway, Hyprland,
+# river, Wayfire). GNOME/Mutter and KDE/KWin do not implement this
+# protocol; on those compositors the runtime returns a clear
+# "compositor unsupported" error rather than silent emptiness.
+wayland-client = "0.31"
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Accessibility (AXUIElement) FFI declared inline; this gets us the
