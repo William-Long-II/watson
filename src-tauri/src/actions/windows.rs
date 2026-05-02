@@ -862,7 +862,7 @@ mod macos {
         WINDOW_TABLE.get_or_init(|| Mutex::new(HashMap::new()))
     }
 
-    fn ax_is_trusted() -> bool {
+    pub(crate) fn ax_is_trusted() -> bool {
         unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) != 0 }
     }
 
@@ -1180,9 +1180,9 @@ mod macos {
     }
 }
 
-/// Re-export of the cross-module AX accessor used by
-/// `actions::browser_tabs`. The `mod macos` itself is private; this
-/// `pub(crate) use` makes the lookup function reachable from other
-/// modules in the crate without exposing the module's internals.
+/// Re-export of the cross-module AX accessors used by
+/// `actions::browser_tabs` and `lib.rs`. The `mod macos` itself is
+/// private; this `pub(crate) use` makes the relevant items reachable
+/// from other modules in the crate without exposing internals.
 #[cfg(target_os = "macos")]
-pub(crate) use macos::{lookup_window_ax, WindowAXHandle};
+pub(crate) use macos::{ax_is_trusted, lookup_window_ax, WindowAXHandle};

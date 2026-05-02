@@ -976,6 +976,55 @@ fn open_config_folder() -> Result<(), String> {
     open::that(&dir).map_err(|e| e.to_string())
 }
 
+/// macOS-only deep-link to the Accessibility pane in System Settings.
+/// Action target for the "Grant access" button on the AX-permission
+/// banner. The `x-apple.systempreferences:` scheme has been stable
+/// since 10.10; on Linux/Windows this command is a no-op error so
+/// the frontend can call it unconditionally without platform checks.
+#[tauri::command]
+fn open_accessibility_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+        open::that(url).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(String::from(
+            "Accessibility permission is a macOS-only concept",
+        ))
+    }
+}
+
+/// Re-probe macOS Accessibility trust. If the user just granted
+/// access in System Settings, the AX subsystem updates immediately
+/// — no app restart required. On success, also clears the
+/// startup-warning banner so the UI reflects the new state without
+/// the user manually dismissing it. Returns the new trust state.
+#[tauri::command]
+fn recheck_accessibility_permission(state: State<AppState>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let trusted = actions::windows::ax_is_trusted();
+        if trusted {
+            state.startup_warnings.clear_accessibility_permission_denied();
+        } else {
+            // Re-record (idempotent via fixed id) so a stale dismissal
+            // by the user — followed by a deny — re-surfaces the
+            // banner.
+            state
+                .startup_warnings
+                .record_accessibility_permission_denied();
+        }
+        trusted
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = state;
+        true
+    }
+}
+
 /// WAT-404: open the OS file browser at `path`'s parent and (where
 /// supported) select the file. Used by the per-result Cmd+K menu's
 /// "Reveal in folder" action.
@@ -1081,6 +1130,22 @@ pub fn run() {
             notifications::Severity::Warning,
             "Clipboard filter errors",
             &format!("{} pattern(s) failed to compile: {}", pattern_errors.len(), pattern_errors.join("; ")),
+        );
+    }
+
+    // macOS only: Accessibility permission is required for the window
+    // and browser-tab switcher. Probe non-prompting at startup and
+    // surface a banner if denied — the user grants once in System
+    // Settings and re-probes via the banner's "Re-check" button
+    // without restarting Watson.
+    #[cfg(target_os = "macos")]
+    if !actions::windows::ax_is_trusted() {
+        startup_warnings.record_accessibility_permission_denied();
+        notifications.push(
+            notifications::Severity::Warning,
+            "Accessibility permission needed",
+            "Watson needs Accessibility access for the window + browser-tab switcher. \
+             Grant it in System Settings → Privacy & Security → Accessibility.",
         );
     }
 
@@ -1216,6 +1281,8 @@ pub fn run() {
             get_startup_warnings,
             dismiss_startup_warning,
             open_config_folder,
+            open_accessibility_settings,
+            recheck_accessibility_permission,
             reveal_file,
             get_reserved_prefixes
         ])

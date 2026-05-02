@@ -141,7 +141,8 @@ export interface FileSearchSettings {
 export type StartupWarningKind =
   | 'shortcut_unavailable'
   | 'settings_from_newer_version'
-  | 'invalid_clipboard_filter';
+  | 'invalid_clipboard_filter'
+  | 'accessibility_permission_denied';
 
 // WAT-406: notifications drawer
 
