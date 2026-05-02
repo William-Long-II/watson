@@ -15,25 +15,31 @@ import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
-// Watson's iconic bowler hat. Body fills use `currentColor` driven by
-// theme-aware text utilities so the silhouette stays legible in dark
-// mode (the original hardcoded gray-700/gray-800 fills disappeared
-// against the dark `--background`). The hat band keeps the amber
-// accent across both themes.
+// Watson's mark — a geometric "W" whose strokes converge into a
+// downward arrow at center, doubling as a cursor / pointer
+// metaphor. Replaces the prior bowler-hat illustration which read
+// as costumed-mascot rather than the keyboard-driven launcher
+// platform Watson aims to be. The amber crossbar on the rightmost
+// stroke preserves the brand's accent heritage. Strokes follow
+// `currentColor` so the mark stays legible across themes.
 function WatsonLogo() {
   return (
     <svg
       className="w-8 h-8 text-gray-700 dark:text-gray-200"
       viewBox="0 0 32 32"
       fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* Bowler hat — `currentColor` follows the parent's text color */}
-      <ellipse cx="16" cy="22" rx="14" ry="3" fill="currentColor" />
-      <path d="M6 22c0-8 4-14 10-14s10 6 10 14" fill="currentColor" />
-      <ellipse cx="16" cy="8" rx="6" ry="2" fill="currentColor" />
-      {/* Hat band — accent color, same in both themes */}
-      <rect x="8" y="18" width="16" height="2" rx="0.5" className="fill-amber-600" />
+      {/* The W strokes — single continuous path, the inner vertex
+          forms the cursor/arrow apex. */}
+      <path d="M 4 8 L 10 24 L 16 14 L 22 24 L 28 8" />
+      {/* Amber crossbar — the one element carried forward from
+          the prior logo's hat band. */}
+      <path d="M 22 16 L 28 16" className="stroke-amber-600" />
     </svg>
   );
 }
