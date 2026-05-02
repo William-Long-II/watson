@@ -97,17 +97,15 @@ pub use win::{focus_browser_tab, get_browser_tabs};
 #[cfg(target_os = "macos")]
 pub use mac::{focus_browser_tab, get_browser_tabs};
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_os = "linux")]
+pub use linux_atspi::{focus_browser_tab, get_browser_tabs};
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn get_browser_tabs(_hwnd: i64, _process_name: &str) -> Result<Vec<TabEntry>, String> {
-    // Linux has AT-SPI but browser support is patchy and gated
-    // behind per-browser flags / screen-reader presence — tracked
-    // as a separate issue. Until that lands, return empty so the
-    // search path stays well-behaved (window-only switcher rows
-    // still work; tabs simply don't surface).
     Ok(vec![])
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 pub fn focus_browser_tab(_hwnd: i64, _index: i32) -> Result<(), String> {
     Err("Browser tab switching not yet implemented on this platform".to_string())
 }
@@ -613,6 +611,384 @@ mod mac {
                         let _: () = msg_send![app, activateWithOptions: 1u64];
                     }
                 }
+                return Ok(());
+            }
+            leaf_idx += 1;
+        }
+
+        Err(format!("tab index {index} out of range"))
+    }
+}
+
+// --- Linux AT-SPI implementation ---
+//
+// AT-SPI is the Linux a11y framework — a D-Bus protocol implemented
+// by the at-spi2-core daemon. Browsers expose tab strips as
+// `PageTabList` accessibles with `PageTab` children.
+//
+// Reality of per-browser support:
+//
+// - **Firefox**: a11y is enabled by default in modern builds; the
+//   tree is populated lazily on first AT-SPI query and may be empty
+//   for ~100ms after launch. Generally reliable.
+// - **Chromium-family** (Chrome, Brave, Edge, Vivaldi, Opera, Arc):
+//   the AT-SPI bridge is gated behind `--force-renderer-accessibility`
+//   or the presence of an active screen reader (Orca). Without one of
+//   these, the renderer's a11y tree is empty even though the browser
+//   window's outer chrome (tab strip included) IS exposed. So tab
+//   enumeration usually works on Chromium; per-page content
+//   inspection wouldn't.
+//
+// We probe each browser process once per session and cache the
+// result. If the AT-SPI tree has no PageTabList for a given window,
+// subsequent calls short-circuit to empty without re-walking.
+//
+// Sync API: zbus's `blocking-api` feature gives us a synchronous
+// proxy. The search hot path is sync and we don't want to drag a
+// tokio runtime into actions code, so we make all D-Bus calls
+// blocking. Each call is local (Unix socket); typical round-trip
+// is sub-millisecond, so even a deep tree walk is fast enough for
+// the 1s TTL cache to amortize.
+
+#[cfg(target_os = "linux")]
+mod linux_atspi {
+    use super::TabEntry;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    use zbus::blocking::connection::Builder as ConnectionBuilder;
+    use zbus::blocking::{Connection, Proxy};
+    use zbus::zvariant::OwnedObjectPath;
+
+    const ATSPI_BUS: &str = "org.a11y.Bus";
+    const ATSPI_BUS_PATH: &str = "/org/a11y/bus";
+    const ATSPI_BUS_IFACE: &str = "org.a11y.Bus";
+
+    const ATSPI_REGISTRY_BUS: &str = "org.a11y.atspi.Registry";
+    const ATSPI_REGISTRY_PATH: &str = "/org/a11y/atspi/registry";
+    const ATSPI_REGISTRY_IFACE: &str = "org.a11y.atspi.Registry";
+
+    const ACCESSIBLE_IFACE: &str = "org.a11y.atspi.Accessible";
+    const ACTION_IFACE: &str = "org.a11y.atspi.Action";
+
+    /// AT-SPI Role enum (ABI-stable since AT-SPI 2.0). Sourced from
+    /// `Atspi.Role` in the GTK docs. We only need the two we filter on.
+    const ROLE_PAGE_TAB: u32 = 36;
+    const ROLE_PAGE_TAB_LIST: u32 = 37;
+
+    /// Bound the tree walk so a malformed accessible tree can't
+    /// loop us forever. Browser tab strips are at depth 2-4 from the
+    /// frame root in practice.
+    const MAX_DEPTH: u8 = 8;
+
+    thread_local! {
+        /// Per-thread connection caches. AT-SPI client connections
+        /// are cheap to keep open; reusing one across calls avoids
+        /// the bus-discovery dance on every search keystroke.
+        static SESSION_BUS: RefCell<Option<Connection>> = const { RefCell::new(None) };
+        static A11Y_BUS: RefCell<Option<Connection>> = const { RefCell::new(None) };
+
+        /// 1s TTL cache keyed by hwnd, mirroring the Windows UIA
+        /// and macOS AX modules.
+        static TAB_CACHE: RefCell<HashMap<i64, (Instant, Vec<TabEntry>)>> =
+            RefCell::new(HashMap::new());
+
+        /// Per-PID "AT-SPI exposes a tab strip for this process"
+        /// flag. Populated on first successful enumeration; once a
+        /// PID is marked unsupported (e.g. the renderer-only Chromium
+        /// case where no PageTabList shows up) we short-circuit
+        /// subsequent calls to avoid re-walking the tree.
+        static PID_SUPPORT: RefCell<HashMap<u32, bool>> =
+            RefCell::new(HashMap::new());
+    }
+    const CACHE_TTL: Duration = Duration::from_secs(1);
+
+    fn session_bus() -> Result<Connection, String> {
+        SESSION_BUS.with(|cell| {
+            if let Some(c) = cell.borrow().as_ref() {
+                return Ok(c.clone());
+            }
+            let conn = Connection::session().map_err(|e| format!("session bus: {e}"))?;
+            *cell.borrow_mut() = Some(conn.clone());
+            Ok(conn)
+        })
+    }
+
+    /// Discover and connect to the AT-SPI accessibility bus. The
+    /// session bus's `org.a11y.Bus.GetAddress` returns the address
+    /// of a separate D-Bus daemon dedicated to a11y traffic.
+    fn a11y_bus() -> Result<Connection, String> {
+        A11Y_BUS.with(|cell| {
+            if let Some(c) = cell.borrow().as_ref() {
+                return Ok(c.clone());
+            }
+            let session = session_bus()?;
+            let proxy = Proxy::new(&session, ATSPI_BUS, ATSPI_BUS_PATH, ATSPI_BUS_IFACE)
+                .map_err(|e| format!("a11y proxy: {e}"))?;
+            let address: String = proxy
+                .call("GetAddress", &())
+                .map_err(|e| format!("GetAddress: {e}"))?;
+            let conn = ConnectionBuilder::address(address.as_str())
+                .map_err(|e| format!("a11y address parse: {e}"))?
+                .build()
+                .map_err(|e| format!("a11y bus connect ({address}): {e}"))?;
+            *cell.borrow_mut() = Some(conn.clone());
+            Ok(conn)
+        })
+    }
+
+    /// Resolve the unix PID of a unique D-Bus name (e.g. `:1.123`)
+    /// via the standard `org.freedesktop.DBus.GetConnectionUnixProcessID`
+    /// RPC on the session bus.
+    fn pid_of_dbus_name(name: &str) -> Option<u32> {
+        let session = session_bus().ok()?;
+        let proxy = Proxy::new(
+            &session,
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+        )
+        .ok()?;
+        proxy.call("GetConnectionUnixProcessID", &name).ok()
+    }
+
+    /// Look up the X11 `_NET_WM_PID` for an X11 window id. We re-do
+    /// this per call rather than caching since the window switcher's
+    /// own `WindowEntry.pid` isn't plumbed through to browser_tabs.
+    /// One round-trip to the X server, ~sub-millisecond.
+    fn pid_of_window(hwnd: i64) -> Result<u32, String> {
+        if hwnd <= 0 || hwnd > u32::MAX as i64 {
+            return Err(format!("invalid X11 window id: {hwnd}"));
+        }
+        use x11rb::connection::Connection as XConnection;
+        use x11rb::protocol::xproto::{AtomEnum, ConnectionExt as _};
+        let (conn, _) = x11rb::connect(None).map_err(|e| format!("X11 connect: {e}"))?;
+        let pid_atom = conn
+            .intern_atom(false, b"_NET_WM_PID")
+            .map_err(|e| format!("intern: {e}"))?
+            .reply()
+            .map_err(|e| format!("intern reply: {e}"))?
+            .atom;
+        let reply = conn
+            .get_property(false, hwnd as u32, pid_atom, AtomEnum::CARDINAL, 0, 1)
+            .map_err(|e| format!("get_property: {e}"))?
+            .reply()
+            .map_err(|e| format!("get_property reply: {e}"))?;
+        if reply.format != 32 || reply.value.len() < 4 {
+            return Err(format!("window {hwnd:#x} has no _NET_WM_PID"));
+        }
+        let bytes = [reply.value[0], reply.value[1], reply.value[2], reply.value[3]];
+        Ok(u32::from_ne_bytes(bytes))
+    }
+
+    /// Resolve the AT-SPI Application root accessible (bus_name +
+    /// object_path) for a given OS PID by enumerating registry
+    /// applications and matching their owning unix pid.
+    fn find_app_root(pid: u32) -> Result<(String, OwnedObjectPath), String> {
+        let conn = a11y_bus()?;
+        let registry = Proxy::new(
+            &conn,
+            ATSPI_REGISTRY_BUS,
+            ATSPI_REGISTRY_PATH,
+            ATSPI_REGISTRY_IFACE,
+        )
+        .map_err(|e| format!("registry proxy: {e}"))?;
+        let apps: Vec<(String, OwnedObjectPath)> = registry
+            .call("GetApplications", &())
+            .map_err(|e| format!("GetApplications: {e}"))?;
+        for (bus_name, path) in apps {
+            if let Some(p) = pid_of_dbus_name(&bus_name) {
+                if p == pid {
+                    return Ok((bus_name, path));
+                }
+            }
+        }
+        Err(format!("no AT-SPI application registered for pid {pid}"))
+    }
+
+    /// Read an Accessible's role (u32) and child count (i32). One
+    /// round-trip per property.
+    fn role_and_child_count(
+        conn: &Connection,
+        bus_name: &str,
+        path: &OwnedObjectPath,
+    ) -> Option<(u32, i32)> {
+        let proxy = Proxy::new(conn, bus_name, path.as_str(), ACCESSIBLE_IFACE).ok()?;
+        let role: u32 = proxy.call("GetRole", &()).ok()?;
+        let count: i32 = proxy.get_property("ChildCount").ok()?;
+        Some((role, count))
+    }
+
+    fn get_child(
+        conn: &Connection,
+        bus_name: &str,
+        path: &OwnedObjectPath,
+        index: i32,
+    ) -> Option<(String, OwnedObjectPath)> {
+        let proxy = Proxy::new(conn, bus_name, path.as_str(), ACCESSIBLE_IFACE).ok()?;
+        proxy.call("GetChildAtIndex", &index).ok()
+    }
+
+    fn get_name(conn: &Connection, bus_name: &str, path: &OwnedObjectPath) -> Option<String> {
+        let proxy = Proxy::new(conn, bus_name, path.as_str(), ACCESSIBLE_IFACE).ok()?;
+        proxy.get_property::<String>("Name").ok()
+    }
+
+    /// DFS for a descendant accessible whose role is `PageTabList`.
+    fn find_tab_list(
+        conn: &Connection,
+        bus_name: &str,
+        path: OwnedObjectPath,
+        depth: u8,
+    ) -> Option<(String, OwnedObjectPath)> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let (role, child_count) = role_and_child_count(conn, bus_name, &path)?;
+        if role == ROLE_PAGE_TAB_LIST {
+            return Some((bus_name.to_string(), path));
+        }
+        for i in 0..child_count {
+            if let Some((cb, cp)) = get_child(conn, bus_name, &path, i) {
+                if let Some(found) = find_tab_list(conn, &cb, cp, depth + 1) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn get_browser_tabs(hwnd: i64, process_name: &str) -> Result<Vec<TabEntry>, String> {
+        let now = Instant::now();
+        let cached = TAB_CACHE.with(|c| {
+            let map = c.borrow();
+            map.get(&hwnd)
+                .filter(|(t, _)| now.duration_since(*t) < CACHE_TTL)
+                .map(|(_, tabs)| tabs.clone())
+        });
+        if let Some(tabs) = cached {
+            return Ok(tabs);
+        }
+
+        let pid = pid_of_window(hwnd)?;
+
+        // Per-pid support cache: short-circuit for processes we
+        // already know don't expose tabs over AT-SPI (Chromium
+        // without renderer-accessibility, etc.).
+        let prev_support = PID_SUPPORT.with(|c| c.borrow().get(&pid).copied());
+        if let Some(false) = prev_support {
+            return Ok(Vec::new());
+        }
+
+        let (bus_name, app_path) = match find_app_root(pid) {
+            Ok(v) => v,
+            Err(_) => {
+                PID_SUPPORT.with(|c| {
+                    c.borrow_mut().insert(pid, false);
+                });
+                TAB_CACHE.with(|c| {
+                    c.borrow_mut().insert(hwnd, (now, Vec::new()));
+                });
+                return Ok(Vec::new());
+            }
+        };
+
+        let conn = a11y_bus()?;
+        let tab_list = match find_tab_list(&conn, &bus_name, app_path, 0) {
+            Some(v) => v,
+            None => {
+                // App is registered with AT-SPI but exposes no tab
+                // strip — common for Chromium without the
+                // accessibility flag. Mark unsupported so we don't
+                // re-walk the tree on every keystroke.
+                PID_SUPPORT.with(|c| {
+                    c.borrow_mut().insert(pid, false);
+                });
+                TAB_CACHE.with(|c| {
+                    c.borrow_mut().insert(hwnd, (now, Vec::new()));
+                });
+                return Ok(Vec::new());
+            }
+        };
+
+        // Mark supported on the first successful tab-list discovery.
+        PID_SUPPORT.with(|c| {
+            c.borrow_mut().insert(pid, true);
+        });
+
+        // Enumerate tabs.
+        let (_, list_count) = match role_and_child_count(&conn, &tab_list.0, &tab_list.1) {
+            Some(v) => v,
+            None => return Ok(Vec::new()),
+        };
+        let mut tabs = Vec::with_capacity(list_count.max(0) as usize);
+        let mut leaf_idx = 0_i32;
+        for i in 0..list_count {
+            let (cb, cp) = match get_child(&conn, &tab_list.0, &tab_list.1, i) {
+                Some(v) => v,
+                None => continue,
+            };
+            // Filter children: only include ones with role PageTab.
+            // Some browsers add separators / "+" buttons.
+            let role = role_and_child_count(&conn, &cb, &cp).map(|(r, _)| r);
+            if role != Some(ROLE_PAGE_TAB) {
+                continue;
+            }
+            let name = match get_name(&conn, &cb, &cp) {
+                Some(n) if !n.trim().is_empty() => n,
+                _ => continue,
+            };
+            tabs.push(TabEntry {
+                window_hwnd: hwnd,
+                process_name: process_name.to_string(),
+                name,
+                index: leaf_idx,
+            });
+            leaf_idx += 1;
+        }
+
+        TAB_CACHE.with(|c| {
+            c.borrow_mut().insert(hwnd, (now, tabs.clone()));
+        });
+        Ok(tabs)
+    }
+
+    pub fn focus_browser_tab(hwnd: i64, index: i32) -> Result<(), String> {
+        let pid = pid_of_window(hwnd)?;
+        let (bus_name, app_path) = find_app_root(pid)?;
+        let conn = a11y_bus()?;
+        let tab_list = find_tab_list(&conn, &bus_name, app_path, 0)
+            .ok_or_else(|| String::from("no tab strip found in this window"))?;
+
+        // Re-walk to find the Nth PageTab leaf — same filter as
+        // enumeration so the index matches.
+        let (_, list_count) = role_and_child_count(&conn, &tab_list.0, &tab_list.1)
+            .ok_or_else(|| String::from("tab list inaccessible"))?;
+        let mut leaf_idx = 0_i32;
+        for i in 0..list_count {
+            let (cb, cp) = match get_child(&conn, &tab_list.0, &tab_list.1, i) {
+                Some(v) => v,
+                None => continue,
+            };
+            let role = role_and_child_count(&conn, &cb, &cp).map(|(r, _)| r);
+            if role != Some(ROLE_PAGE_TAB) {
+                continue;
+            }
+            if leaf_idx == index {
+                // AT-SPI Action interface: DoAction(0) is "click" for
+                // most accessibles; for tabs it equates to selection.
+                let action = Proxy::new(&conn, &cb, cp.as_str(), ACTION_IFACE)
+                    .map_err(|e| format!("action proxy: {e}"))?;
+                let _: bool = action
+                    .call("DoAction", &0_i32)
+                    .map_err(|e| format!("DoAction: {e}"))?;
+
+                // Bring the X11 window to the foreground so the
+                // browser is visible (the AT-SPI selection alone
+                // doesn't focus the window).
+                use crate::actions::windows;
+                let _ = windows::focus_window(hwnd);
                 return Ok(());
             }
             leaf_idx += 1;
