@@ -52,6 +52,12 @@ windows = { version = "0.61", features = [
 # toplevel) is a follow-up issue; in the meantime the runtime falls
 # back to an explanatory error on Wayland sessions.
 x11rb = "0.13"
+# AT-SPI is a D-Bus protocol; zbus's blocking-api feature lets us
+# call it from the synchronous search hot path without dragging
+# tokio's runtime into actions code. We use raw proxies (no `atspi`
+# crate) to keep the dependency surface small and to avoid coupling
+# to that crate's still-evolving API.
+zbus = { version = "4", features = ["blocking"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Accessibility (AXUIElement) FFI declared inline; this gets us the
