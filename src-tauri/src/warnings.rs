@@ -32,6 +32,11 @@ pub enum StartupWarningKind {
     /// as regex. The valid patterns still apply; the user sees which
     /// ones they need to fix.
     InvalidClipboardFilter,
+    /// macOS only: the Accessibility permission needed for the window
+    /// + browser-tab switcher hasn't been granted. Surfaced eagerly
+    /// at startup so the user can grant it once instead of hitting
+    /// the same error repeatedly from the search hot path.
+    AccessibilityPermissionDenied,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,7 +138,32 @@ impl StartupWarnings {
             ),
         });
     }
+
+    /// Record that macOS Accessibility permission isn't granted. Idempotent
+    /// via a fixed id so repeated calls don't stack banners. Pair with
+    /// `clear_accessibility_permission_denied` after a successful re-probe.
+    pub fn record_accessibility_permission_denied(&self) {
+        let id = ACCESSIBILITY_DENIED_ID.to_string();
+        let _ = self.dismiss(&id);
+        self.push(StartupWarning {
+            id,
+            kind: StartupWarningKind::AccessibilityPermissionDenied,
+            message: String::from(
+                "Watson needs Accessibility access to switch between windows and browser tabs. \
+                 Grant access in System Settings → Privacy & Security → Accessibility, then \
+                 click \"Re-check\".",
+            ),
+        });
+    }
+
+    /// Remove the AX-permission warning. Called after the user grants
+    /// access and Watson re-probes successfully.
+    pub fn clear_accessibility_permission_denied(&self) -> bool {
+        self.dismiss(ACCESSIBILITY_DENIED_ID)
+    }
 }
+
+const ACCESSIBILITY_DENIED_ID: &str = "accessibility-permission-denied";
 
 #[cfg(test)]
 mod tests {
@@ -248,5 +278,30 @@ mod tests {
         w.record_settings_from_newer_version(2, 1);
         w.record_settings_from_newer_version(2, 1);
         assert_eq!(w.list().len(), 1);
+    }
+
+    #[test]
+    fn record_accessibility_permission_denied_idempotent() {
+        // Repeated calls (eg. startup probe + re-check probe with the
+        // same denied state) should not stack banners.
+        let w = StartupWarnings::new();
+        w.record_accessibility_permission_denied();
+        w.record_accessibility_permission_denied();
+        assert_eq!(w.list().len(), 1);
+        assert!(matches!(
+            w.list()[0].kind,
+            StartupWarningKind::AccessibilityPermissionDenied
+        ));
+    }
+
+    #[test]
+    fn clear_accessibility_permission_denied_removes_the_banner() {
+        let w = StartupWarnings::new();
+        w.record_accessibility_permission_denied();
+        assert_eq!(w.list().len(), 1);
+        assert!(w.clear_accessibility_permission_denied());
+        assert!(w.list().is_empty());
+        // Clearing when nothing is recorded is a no-op (returns false).
+        assert!(!w.clear_accessibility_permission_denied());
     }
 }

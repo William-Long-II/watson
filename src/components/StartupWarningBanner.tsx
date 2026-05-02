@@ -98,6 +98,10 @@ function WarningRow({
         </button>
       )}
 
+      {warning.kind === 'accessibility_permission_denied' && (
+        <AccessibilityPermissionActions />
+      )}
+
       <button
         type="button"
         onClick={onDismiss}
@@ -116,5 +120,49 @@ function WarningRow({
         </svg>
       </button>
     </li>
+  );
+}
+
+/**
+ * macOS-only AX permission actions: opens the Accessibility pane in
+ * System Settings, then re-probes on the user's "Re-check" click. The
+ * re-probe clears its own banner on success via
+ * `clear_accessibility_permission_denied` in the backend, so we just
+ * call `loadStartupWarnings` to refresh the list.
+ */
+function AccessibilityPermissionActions() {
+  const { loadStartupWarnings } = useAppStore();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          invoke('open_accessibility_settings').catch((err) =>
+            console.error('Failed to open Accessibility settings:', err),
+          )
+        }
+        className="text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+      >
+        Grant access
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await invoke<boolean>('recheck_accessibility_permission');
+          } catch (err) {
+            console.error('Failed to re-check Accessibility permission:', err);
+          } finally {
+            // Refresh either way — backend clears the warning when
+            // trusted, re-records when still denied, so the banner
+            // list always reflects current state after this call.
+            loadStartupWarnings();
+          }
+        }}
+        className="text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
+      >
+        Re-check
+      </button>
+    </>
   );
 }
