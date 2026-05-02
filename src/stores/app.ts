@@ -69,8 +69,19 @@ const HEADER_HEIGHT = 56;
 const SEARCH_HEIGHT = 56;
 const RESULT_HEIGHT = 64;
 const SETTINGS_HEIGHT = 350;
-const EMPTY_STATE_HEIGHT = 110; // Height for quick tips
+// Height for the Quick Tips empty state. Includes p-4 padding (32),
+// the "Quick Tips" header (~16), three tip lines at text-xs with
+// `space-y-0.5` between them (~52), and the `space-y-1` gap between
+// header and tips block (~4). Earlier 110 undercounted by ~30px and
+// the bottom two tip lines were getting clipped at the window edge.
+const EMPTY_STATE_HEIGHT = 150;
 const PADDING = 28; // Extra padding for rounded corners
+// On empty queries with recents present, ResultsList renders a small
+// "RECENTS" label inside the same scrollable region as the rows. The
+// label is `px-4 py-1.5` (~24px tall including line-height) and sits
+// ABOVE the rows, so the resize calculation has to add it on top of
+// `results.length * RESULT_HEIGHT` or the bottom row gets clipped.
+const RECENTS_HEADER_HEIGHT = 24;
 const MIN_HEIGHT = HEADER_HEIGHT + SEARCH_HEIGHT + EMPTY_STATE_HEIGHT + PADDING;
 const MAX_RESULTS_HEIGHT = 320;
 
@@ -239,7 +250,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resizeWindow: async () => {
-    const { results, showSettings, scratchpadVisible, noteEditorVisible } = get();
+    const { results, showSettings, scratchpadVisible, noteEditorVisible, query } = get();
 
     let height: number;
 
@@ -251,7 +262,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       height = HEADER_HEIGHT + SEARCH_HEIGHT + SETTINGS_HEIGHT + PADDING;
     } else if (results.length > 0) {
       const resultsHeight = Math.min(results.length * RESULT_HEIGHT, MAX_RESULTS_HEIGHT);
-      height = HEADER_HEIGHT + SEARCH_HEIGHT + resultsHeight + PADDING;
+      // The empty-query path ("Recents") renders a small label ABOVE
+      // the result rows inside the same scrollable region. Add its
+      // height so the bottom row doesn't get clipped at the window
+      // edge — that was the cutoff bug visible in early Phase 1B
+      // captures.
+      const recentsHeader = !query.trim() ? RECENTS_HEADER_HEIGHT : 0;
+      height = HEADER_HEIGHT + SEARCH_HEIGHT + recentsHeader + resultsHeight + PADDING;
     } else {
       height = MIN_HEIGHT;
     }

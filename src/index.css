@@ -233,3 +233,104 @@ body {
 .animate-fade-in {
   animation: fadeIn var(--motion-duration-base) var(--motion-ease-out) forwards;
 }
+
+/* =====================================================================
+ * Aero-glass + Hexclad-mesh surface (DARK MODE EXPLORATION)
+ *
+ * Visual direction: late-2000s Aero gloss (subtle vertical gradient,
+ * inner top highlight, light-catching edge) crossed with the hex
+ * mesh pattern from Hexclad cookware (subtle dark hexagonal grid as
+ * texture, not loud gradient). The Watson amber accent stays as the
+ * single brand spot color — used here as a warm corner glow at top-
+ * right that catches the eye without dominating.
+ *
+ * Why fake it instead of using true OS transparency: the previous
+ * attempt at `transparent: true` interacted badly with the resize
+ * math and clipped result rows. Layered gradients give us the depth
+ * + character of glass without the platform-level surface area.
+ * Real backdrop-filter: blur can come later once form factor is
+ * decided.
+ *
+ * Stacking (top → bottom in CSS = visual top → bottom):
+ *   1. Inner top highlight (Aero gloss)
+ *   2. Subtle warm amber glow at top-right corner
+ *   3. Hex grid texture
+ *   4. Base vertical gradient
+ * ===================================================================== */
+
+.glass-surface-dark {
+  background:
+    /* 1. Inner top highlight — subtle white gloss falling from the top
+     *    edge, fading by ~35% down. Reads as "light coming from above". */
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0.02) 18%,
+      transparent 38%
+    ),
+    /* 2. Amber corner glow — Watson brand color as a soft top-right
+     *    warm-spot. Low alpha (~6%) so it's a *suggestion* of warmth
+     *    rather than a full color wash. */
+    radial-gradient(
+      ellipse 60% 80% at 100% 0%,
+      rgba(217, 119, 6, 0.07) 0%,
+      rgba(217, 119, 6, 0) 50%
+    ),
+    /* 3. Honeycomb mesh texture — adapted from the
+     *    Heropatterns "hexagons" tile, which encodes a true
+     *    interconnected honeycomb (alternating rows offset by half
+     *    a hex width so strokes form a continuous mesh, not stacked
+     *    isolated hexes). 28×49 tile is ~half the size of the
+     *    original wallpaper-grid attempt while still tessellating
+     *    properly. fill-rule=evenodd draws the hex *outline* as a
+     *    pair of concentric polygons so the line weight stays
+     *    consistent regardless of zoom. */
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'><path fill-rule='evenodd' fill='%23ffffff' fill-opacity='0.07' d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/></svg>"),
+    /* 4. Base vertical gradient — slightly lighter at top, darker at
+     *    bottom. Pulled the chroma down (0.020 → 0.010) so the
+     *    underlying tone reads less blue-purple — that lets the
+     *    white hex strokes appear truer-white rather than tinted
+     *    by the surface color. */
+    linear-gradient(
+      180deg,
+      oklch(22% 0.010 280) 0%,
+      oklch(15% 0.010 280) 100%
+    );
+  background-size:
+    auto,
+    auto,
+    10px 17.5px,
+    auto;
+  background-repeat:
+    no-repeat,
+    no-repeat,
+    repeat,
+    no-repeat;
+}
+
+/* Light-catching top hairline — pairs with the surface to read as
+ * "rim of glass". 1px line at the top edge in 12% white, falling
+ * off via a thin gradient to nothing on the sides/bottom. */
+.glass-rim-dark {
+  position: relative;
+}
+.glass-rim-dark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    transparent 1.5px,
+    transparent calc(100% - 1px),
+    rgba(0, 0, 0, 0.25) 100%
+  );
+  /* This needs to render ABOVE the surface gradients but BELOW any
+   * focus rings or content. The empty-content + linear-gradient
+   * trick gives us a 1px-tall top highlight + 1px-tall bottom
+   * shadow without needing two separate ::before / ::after
+   * pseudo-elements. */
+  z-index: 1;
+}
