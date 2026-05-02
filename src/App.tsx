@@ -15,15 +15,24 @@ import { NotificationsDrawer } from './components/NotificationsDrawer';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
-// Watson's iconic bowler hat
+// Watson's iconic bowler hat. Body fills use `currentColor` driven by
+// theme-aware text utilities so the silhouette stays legible in dark
+// mode (the original hardcoded gray-700/gray-800 fills disappeared
+// against the dark `--background`). The hat band keeps the amber
+// accent across both themes.
 function WatsonLogo() {
   return (
-    <svg className="w-8 h-8" viewBox="0 0 32 32" fill="none">
-      {/* Bowler hat */}
-      <ellipse cx="16" cy="22" rx="14" ry="3" className="fill-gray-700" />
-      <path d="M6 22c0-8 4-14 10-14s10 6 10 14" className="fill-gray-800" />
-      <ellipse cx="16" cy="8" rx="6" ry="2" className="fill-gray-700" />
-      {/* Hat band */}
+    <svg
+      className="w-8 h-8 text-gray-700 dark:text-gray-200"
+      viewBox="0 0 32 32"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* Bowler hat — `currentColor` follows the parent's text color */}
+      <ellipse cx="16" cy="22" rx="14" ry="3" fill="currentColor" />
+      <path d="M6 22c0-8 4-14 10-14s10 6 10 14" fill="currentColor" />
+      <ellipse cx="16" cy="8" rx="6" ry="2" fill="currentColor" />
+      {/* Hat band — accent color, same in both themes */}
       <rect x="8" y="18" width="16" height="2" rx="0.5" className="fill-amber-600" />
     </svg>
   );
@@ -602,19 +611,37 @@ function App() {
     return () => document.removeEventListener('contextmenu', handleContextMenu);
   }, []);
 
-  // Apply theme
+  // Apply theme. When mode === 'system', also subscribe to OS-level
+  // theme changes so flipping macOS / Windows light/dark while Watson
+  // is open propagates immediately — previously the effect only ran
+  // on mount and on settings change, so a runtime OS theme flip was
+  // ignored until the next launch.
   useEffect(() => {
     if (!settings) return;
 
     const { mode } = settings.theme;
     const root = document.documentElement;
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
 
-    if (mode === 'system') {
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      root.classList.toggle('dark', isDark);
-    } else {
-      root.classList.toggle('dark', mode === 'dark');
+    const applyMode = () => {
+      if (mode === 'system') {
+        root.classList.toggle('dark', mql.matches);
+      } else {
+        root.classList.toggle('dark', mode === 'dark');
+      }
+    };
+
+    applyMode();
+
+    if (mode !== 'system') {
+      // Explicit light/dark choice — no need to listen to the OS.
+      return;
     }
+    // Track OS preference changes only while in 'system' mode. Older
+    // Safari uses addListener; addEventListener is the modern path
+    // and supported by all Tauri-target browsers (Chromium / WebKit).
+    mql.addEventListener('change', applyMode);
+    return () => mql.removeEventListener('change', applyMode);
   }, [settings?.theme.mode]);
 
   return (
