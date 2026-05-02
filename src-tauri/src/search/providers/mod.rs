@@ -13,4 +13,5 @@
 //! 5. async providers (notes, file_search) — needs trait-async
 //!    decision
 
+pub mod snippets;
 pub mod web_search;
