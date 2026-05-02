@@ -28,7 +28,17 @@ export function Scratchpad() {
     <div className="p-4 border-t border-[var(--border)]">
       <div className="flex justify-between items-center mb-3">
         <h3 className="font-semibold flex items-center gap-2">
-          <span className="text-lg">📋</span>
+          <svg
+            className="w-4 h-4 text-amber-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path d="M12 20h9" />
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+          </svg>
           Scratchpad
         </h3>
         <div className="flex gap-2">
