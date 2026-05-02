@@ -1,35 +1,215 @@
 @import "tailwindcss";
 
+/* =====================================================================
+ * Design tokens — single source of truth.
+ *
+ * Phase 1B foundation per DESIGN.md. Replaces the previous five-variable
+ * "token system" (--background, --foreground, --border, --selected,
+ * --input-bg) with a real semantic palette + spacing / radius / motion
+ * / typography scales.
+ *
+ * Color values are OKLCH where possible (perceptually uniform; accent
+ * + state colors look balanced across the neutral ramp). Tailwind v4
+ * picks up `--color-*`, `--spacing-*`, `--radius-*`, `--text-*`, and
+ * `--font-*` declarations inside `@theme` and exposes them as utility
+ * classes (e.g. `bg-surface-base`, `text-text-primary`, `p-3`).
+ *
+ * The legacy aliases (--background, --foreground, --border, --selected,
+ * --input-bg) at the bottom of `:root` and `.dark` stay so existing
+ * components reading `var(--background)` keep working during the
+ * progressive migration to semantic utility classes.
+ * ===================================================================== */
+
+@theme {
+  /* --- Color: 9-step neutral ramp ----------------------------------
+   * Slightly cool/blue-leaning to harmonize with the dark-mode
+   * background (#1a1a26 family). Light values use OKLCH lightness
+   * with a tiny chroma so they don't read as flat gray. */
+  --color-neutral-50:  oklch(98.5% 0.005 270);
+  --color-neutral-100: oklch(96%   0.008 270);
+  --color-neutral-200: oklch(92%   0.010 270);
+  --color-neutral-300: oklch(83%   0.012 270);
+  --color-neutral-400: oklch(70%   0.014 270);
+  --color-neutral-500: oklch(56%   0.014 270);
+  --color-neutral-600: oklch(43%   0.014 270);
+  --color-neutral-700: oklch(30%   0.014 270);
+  --color-neutral-800: oklch(20%   0.015 275);
+  --color-neutral-900: oklch(13%   0.018 280);
+
+  /* --- Color: accent (amber/Watson brand) --------------------------
+   * Anchored at 600 = #d97706 — the existing Watson amber from the
+   * old hat band, now the load-bearing brand mark stroke. */
+  --color-accent-300: oklch(85%  0.13 65);
+  --color-accent-400: oklch(78%  0.15 60);
+  --color-accent-500: oklch(70%  0.17 55);
+  --color-accent-600: oklch(60%  0.17 50);
+  --color-accent-700: oklch(50%  0.16 45);
+  --color-accent-800: oklch(40%  0.14 40);
+
+  /* --- Color: state ------------------------------------------------
+   * Used for notifications, banners, focus rings, validation. */
+  --color-state-info:    oklch(65% 0.16 240);
+  --color-state-success: oklch(64% 0.16 145);
+  --color-state-warning: oklch(72% 0.17 80);
+  --color-state-error:   oklch(60% 0.22 25);
+
+  /* --- Spacing scale ------------------------------------------------
+   * 4px base. Phase 1B target is to route every padding / gap value
+   * through this scale (today ad-hoc p-4 / px-4 py-3 / p-6 etc). */
+  --spacing-0: 0;
+  --spacing-1: 4px;
+  --spacing-2: 8px;
+  --spacing-3: 12px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-8: 32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+
+  /* --- Radius scale -------------------------------------------------
+   * Three values; resist adding more. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* --- Motion ------------------------------------------------------
+   * Three durations + two curves. `ease-out` is the house default
+   * (Linear-style elegant arrival); `spring` for activation +
+   * accept-toast emphasis only. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-base: 180ms;
+  --motion-duration-slow: 280ms;
+  --motion-ease-out:   cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --motion-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* --- Typography --------------------------------------------------
+   * Type scale: Display 22, Title 14, Body 13, Meta 11. Hierarchy
+   * via weight + color, not size jumps. Tabular numerals on so
+   * calc results and timestamps don't dance.
+   *
+   * Letter-spacing -0.011em on Title is the Notion Calendar tightness
+   * applied to launcher-row labels. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+    system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo,
+    Consolas, monospace;
+
+  --text-display: 22px;
+  --text-display--line-height: 28px;
+  --text-title:   14px;
+  --text-title--line-height: 20px;
+  --text-body:    13px;
+  --text-body--line-height: 18px;
+  --text-meta:    11px;
+  --text-meta--line-height: 16px;
+}
+
+/* =====================================================================
+ * Semantic surface tokens — theme-switchable.
+ *
+ * Components should prefer these (`var(--surface-base)`) over raw
+ * neutral steps (`var(--color-neutral-50)`) so a future theme switch
+ * doesn't require changing every component. The legacy 5-var aliases
+ * at the bottom of each block keep older components working until they
+ * migrate.
+ * ===================================================================== */
 :root {
-  --background: #ffffff;
-  --foreground: #1a1a1a;
-  --border: #e5e5e5;
-  --selected: #f5f5f5;
-  --input-bg: #f0f0f0;
+  /* Surfaces */
+  --surface-base:    oklch(99%   0.003 90);  /* warm-leaning page bg, not pure white */
+  --surface-raised:  #ffffff;                /* cards, dropdowns */
+  --surface-sunken:  var(--color-neutral-100);
+  --surface-overlay: rgba(0, 0, 0, 0.4);
+
+  /* Text */
+  --text-primary:   var(--color-neutral-900);
+  --text-secondary: var(--color-neutral-600);
+  --text-muted:     var(--color-neutral-500);
+  --text-disabled:  var(--color-neutral-400);
+
+  /* Borders */
+  --border-default: var(--color-neutral-200);
+  --border-strong:  var(--color-neutral-300);
+  --border-focused: var(--color-accent-500);
+
+  /* Selection / hover */
+  --selected-bg:     var(--color-neutral-100);
+  --selected-border: var(--color-accent-500);
+  --hover-bg:        var(--color-neutral-100);
+
+  /* Shadow */
+  --shadow-elevated:
+    0 24px 48px -12px rgba(0, 0, 0, 0.18),
+    0 8px 16px -8px rgba(0, 0, 0, 0.08);
+
+  /* --- Legacy aliases — DO NOT add new uses; migrate readers to the
+   *     semantic tokens above. Kept for incremental migration. --- */
+  --background: var(--surface-base);
+  --foreground: var(--text-primary);
+  --border:     var(--border-default);
+  --selected:   var(--selected-bg);
+  --input-bg:   var(--surface-sunken);
 }
 
 .dark {
-  --background: #1e1e2e;
-  --foreground: #eaeaea;
-  --border: #3a3a4a;
-  --selected: #2a2a3a;
-  --input-bg: #252535;
+  --surface-base:    oklch(18% 0.018 280);   /* warm-not-pure dark bg */
+  --surface-raised:  oklch(22% 0.018 280);
+  --surface-sunken:  oklch(15% 0.018 280);
+  --surface-overlay: rgba(0, 0, 0, 0.6);
+
+  --text-primary:   oklch(96% 0.005 270);
+  --text-secondary: var(--color-neutral-400);
+  --text-muted:     var(--color-neutral-500);
+  --text-disabled:  var(--color-neutral-600);
+
+  --border-default: oklch(28% 0.018 280);
+  --border-strong:  oklch(36% 0.018 280);
+  --border-focused: var(--color-accent-500);
+
+  --selected-bg:     oklch(26% 0.018 280);
+  --selected-border: var(--color-accent-500);
+  --hover-bg:        oklch(24% 0.018 280);
+
+  --shadow-elevated:
+    0 24px 48px -12px rgba(0, 0, 0, 0.55),
+    0 8px 16px -8px rgba(0, 0, 0, 0.35);
+
+  /* --- Legacy aliases --- */
+  --background: var(--surface-base);
+  --foreground: var(--text-primary);
+  --border:     var(--border-default);
+  --selected:   var(--selected-bg);
+  --input-bg:   var(--surface-sunken);
 }
 
 html, body, #root {
-  background: var(--background);
+  background: var(--surface-base);
   margin: 0;
   padding: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 body {
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  /* `tnum` keeps numbers from dancing in calc results / timestamps;
+   * `cv11` is Inter's stylistic single-storey 'g' which reads cleaner
+   * at the small body size — both no-op on system fonts. */
+  font-feature-settings: "tnum", "cv11";
 }
 
-/* Animations */
+/* =====================================================================
+ * Animations
+ *
+ * The two existing keyframes (fadeSlideIn, fadeIn) keep their names
+ * but now consume the motion tokens. New animations should follow
+ * the same pattern: keyframe + class that references --motion-*.
+ * ===================================================================== */
 @keyframes fadeSlideIn {
   from {
     opacity: 0;
@@ -42,18 +222,14 @@ body {
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .animate-fade-slide-in {
-  animation: fadeSlideIn 0.15s ease-out forwards;
+  animation: fadeSlideIn var(--motion-duration-fast) var(--motion-ease-out) forwards;
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-out forwards;
+  animation: fadeIn var(--motion-duration-base) var(--motion-ease-out) forwards;
 }
