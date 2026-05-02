@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.6.1] - 2026-05-02
+
 ### Fixed
 - **Snippet paste reliability** - Replaces the previous PowerShell SendKeys / osascript shell-outs with direct event injection (Win32 `SendInput` on Windows, Quartz `CGEventPost` on macOS). Fixes a Windows-only NumLock-toggle bug where typing a snippet trigger and hitting Enter could close Watson and toggle NumLock instead of pasting (KB179987-style foreground-change race). On macOS, eliminates the second permission prompt for "System Events" Automation — the existing Accessibility grant now covers snippets too.
 
