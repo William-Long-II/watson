@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.7.0] - 2026-05-02
+
 ### Added
 - **Aero-glass + Hexclad-mesh surface treatment** - The launcher chrome now layers a subtle vertical gradient, an interconnected honeycomb mesh texture (Heropatterns tile rendered at brushed-metal-grain scale), an amber corner glow at top-right, and a 1px light-catching top edge with a hairline shadow at the bottom. Theme-aware: cool-dark base + white hex strokes in dark mode; warm-light base + black hex strokes in light mode (opacity perceptually-tuned per mode).
 - **Design-token foundation** - Replaces the previous five-variable token system with a real semantic palette (9-step neutral ramp + 6-step accent + state colors, all OKLCH-tuned), spacing scale, radius scale, motion tokens, and type scale. Tailwind v4's `@theme` directive exposes them as utility classes. Legacy `var(--background)` etc. aliases preserved during migration.
