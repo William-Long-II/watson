@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **New Watson mark** - Replaces the bowler-hat illustration with a geometric two-tone "W" whose strokes converge into a downward-arrow vertex at center, doubling as a cursor / launch-point metaphor. The final up-stroke carries the amber-600 brand color so the mark stays unmistakably *Watson* without the costumed-mascot baggage. Updated in both the in-app header and the OS-level icons (Windows taskbar, macOS dock, Linux launcher menus).
+
+### Fixed
+- **Stale Quick Tips empty state** - The empty-state panel still taught the bare-letter shortcuts (`n`, `f`, `s`) that were removed in v1.5.1. Now reflects the trailing-space disambiguators (`n `, `f `, `cb `) and backtick for scratchpad — what actually works.
+- **WatsonLogo invisible in dark mode** - Hardcoded `fill-gray-700/800` made the logo nearly disappear against the dark `--background`. The new mark uses `currentColor` so it stays legible across themes.
+- **OS theme changes propagate without restart** - Watson now subscribes to `prefers-color-scheme` when `theme.mode === 'system'`, so flipping the OS light/dark toggle while Watson is open updates the UI immediately instead of requiring a relaunch.
+- **Emoji in panel headers** - Replaced the 📝 (NoteEditor) and 📋 (Scratchpad) emoji with theme-aware SVG icons that match the rest of the chrome.
+
 
 ## [1.6.1] - 2026-05-02
 
