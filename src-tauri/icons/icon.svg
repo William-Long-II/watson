@@ -6,6 +6,6 @@
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bgGradient)"/>
-  <path d="M 80 144 L 168 384 L 256 232 L 344 384 L 432 144" fill="none" stroke="#fafaf9" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 344 264 L 432 264" stroke="#d97706" stroke-width="56" stroke-linecap="round" fill="none"/>
+  <path d="M 80 144 L 168 384 L 256 232 L 344 384" fill="none" stroke="#fafaf9" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 344 384 L 432 144" fill="none" stroke="#d97706" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

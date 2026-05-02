@@ -34,12 +34,14 @@ function WatsonLogo() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      {/* The W strokes — single continuous path, the inner vertex
-          forms the cursor/arrow apex. */}
-      <path d="M 4 8 L 10 24 L 16 14 L 22 24 L 28 8" />
-      {/* Amber crossbar — the one element carried forward from
-          the prior logo's hat band. */}
-      <path d="M 22 16 L 28 16" className="stroke-amber-600" />
+      {/* First three strokes of the W in neutral. Stops at the
+          right-trough vertex so the final up-stroke can carry the
+          accent color cleanly. */}
+      <path d="M 4 8 L 10 24 L 16 14 L 22 24" />
+      {/* Final up-stroke in amber — the brand accent carried
+          forward from the prior logo's hat band, now load-bearing
+          as part of the mark instead of a decorative crossing. */}
+      <path d="M 22 24 L 28 8" className="stroke-amber-600" />
     </svg>
   );
 }
