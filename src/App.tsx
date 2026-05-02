@@ -619,6 +619,42 @@ function App() {
     return () => document.removeEventListener('contextmenu', handleContextMenu);
   }, []);
 
+  // Activation animation: plays the spring-in entrance whenever the
+  // Watson window gains focus (hotkey show + initial mount). Uses the
+  // Web Animations API so each call plays from the start without
+  // CSS-restart hacks. Timing + easing mirror the `--motion-*` tokens
+  // (180ms / ease-out); kept here in JS so React re-renders don't
+  // re-trigger it (only window focus events do).
+  const appContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const playActivation = () => {
+      const el = appContainerRef.current;
+      if (!el) return;
+      el.animate(
+        [
+          { opacity: 0, transform: 'scale(0.98) translateY(-4px)' },
+          { opacity: 1, transform: 'scale(1) translateY(0)' },
+        ],
+        {
+          duration: 180,
+          easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+          fill: 'both',
+        },
+      );
+    };
+    // Fire once on initial mount (Watson is visible from launch).
+    playActivation();
+    // And re-fire whenever the window regains focus (hotkey-show).
+    const win = getCurrentWindow();
+    let unlisten: undefined | (() => void);
+    win.listen('tauri://focus', playActivation).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
   // Apply theme. When mode === 'system', also subscribe to OS-level
   // theme changes so flipping macOS / Windows light/dark while Watson
   // is open propagates immediately — previously the effect only ran
@@ -653,7 +689,10 @@ function App() {
   }, [settings?.theme.mode]);
 
   return (
-    <div className="bg-[var(--background)] text-[var(--foreground)] rounded-xl overflow-hidden border border-[var(--border)] shadow-2xl">
+    <div
+      ref={appContainerRef}
+      className="bg-[var(--background)] text-[var(--foreground)] rounded-[14px] overflow-hidden border border-[var(--border)] shadow-[var(--shadow-elevated)]"
+    >
       {/* Header - draggable */}
       <div
         data-tauri-drag-region

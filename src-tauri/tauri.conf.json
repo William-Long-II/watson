@@ -17,11 +17,11 @@
         "height": 400,
         "resizable": false,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "alwaysOnTop": true,
         "center": true,
         "visible": true,
-        "shadow": false
+        "shadow": true
       }
     ],
     "security": {

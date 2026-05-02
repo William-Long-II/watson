@@ -186,11 +186,16 @@
   --input-bg:   var(--surface-sunken);
 }
 
+/* The Tauri window is now `transparent: true`, so the html/body need
+ * to render transparent — the visible surface (with its rounded
+ * corners + drop shadow) lives on the inner App container. This is
+ * the standard floating-launcher pattern (Spotlight / Raycast) and
+ * lets the OS show a real soft drop-shadow behind the rounded
+ * content instead of a flat rectangle. */
 html, body, #root {
-  background: var(--surface-base);
+  background: transparent;
   margin: 0;
   padding: 0;
-  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -232,4 +237,29 @@ body {
 
 .animate-fade-in {
   animation: fadeIn var(--motion-duration-base) var(--motion-ease-out) forwards;
+}
+
+/* =====================================================================
+ * Activation animation
+ *
+ * Plays once when the Watson window receives focus (i.e. on hotkey
+ * show, not on every keystroke). Mirrors the Raycast / Spotlight
+ * "spring-in" feel: subtle scale (0.98 → 1.0) + a small downward
+ * settle (-4px → 0) + opacity fade. Triggered imperatively from
+ * App.tsx via the Web Animations API, so each show plays from the
+ * start without CSS-restart hacks.
+ *
+ * The keyframe is defined here so the curve / timing is part of the
+ * design system; the trigger lives in JS so the UI can decide when
+ * to fire (window focus, not every render).
+ * ===================================================================== */
+@keyframes activate {
+  from {
+    opacity: 0;
+    transform: scale(0.98) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
