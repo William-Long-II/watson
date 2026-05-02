@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Aero-glass + Hexclad-mesh surface treatment** - The launcher chrome now layers a subtle vertical gradient, an interconnected honeycomb mesh texture (Heropatterns tile rendered at brushed-metal-grain scale), an amber corner glow at top-right, and a 1px light-catching top edge with a hairline shadow at the bottom. Theme-aware: cool-dark base + white hex strokes in dark mode; warm-light base + black hex strokes in light mode (opacity perceptually-tuned per mode).
+- **Design-token foundation** - Replaces the previous five-variable token system with a real semantic palette (9-step neutral ramp + 6-step accent + state colors, all OKLCH-tuned), spacing scale, radius scale, motion tokens, and type scale. Tailwind v4's `@theme` directive exposes them as utility classes. Legacy `var(--background)` etc. aliases preserved during migration.
+
+### Fixed
+- **Result row + Quick Tips clipping** - The empty-query "Recents" header and the multi-line empty-state Quick Tips block were both undercounted in the window-resize math, causing the bottom row / bottom tips to clip at the window edge. Added the recents-header height to the resize calculation and bumped the empty-state height constant to match actual rendered content.
+
+### Changed
+- **Form-factor direction committed** - DESIGN.md now commits to the "bar for transient dispatch, workspace window for sustained work" pattern (Raycast/Alfred shape). Phase 2a will ship Scenes editor AND the workspace window together; Phase 2b's MCP chat lands in the workspace from day one. No code change in this release; the workspace window itself lands in the Phase 2a tracking issue.
+
 
 ## [1.6.2] - 2026-05-02
 
