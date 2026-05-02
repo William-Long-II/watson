@@ -866,6 +866,51 @@ mod macos {
         unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) != 0 }
     }
 
+    /// Cross-module accessor: look up the AX window element for a
+    /// previously-enumerated window handle, returning a freshly
+    /// retained ref + its owning pid. Used by `actions::browser_tabs`
+    /// to walk the AX tree of a browser window without re-enumerating
+    /// `NSWorkspace.runningApplications`.
+    ///
+    /// Returns `None` if the handle isn't in the current snapshot
+    /// (window closed, or `get_open_windows` was never called).
+    pub(crate) fn lookup_window_ax(hwnd: i64) -> Option<WindowAXHandle> {
+        let table = WINDOW_TABLE.get()?.lock().ok()?;
+        let stored = table.get(&hwnd)?;
+        let raw = stored.ax.as_raw();
+        unsafe {
+            core_foundation::base::CFRetain(raw as CFTypeRef);
+        }
+        Some(WindowAXHandle {
+            raw,
+            pid: stored.pid,
+        })
+    }
+
+    /// Owned (+1 retained) AX window reference handed across the
+    /// `windows` ↔ `browser_tabs` module boundary. Drop releases.
+    pub(crate) struct WindowAXHandle {
+        raw: AXUIElementRef,
+        pub(crate) pid: u32,
+    }
+
+    impl WindowAXHandle {
+        /// Raw AXUIElementRef pointer, for callers that declare their
+        /// own AX FFI bindings against ApplicationServices.framework.
+        pub(crate) fn raw(&self) -> *const std::os::raw::c_void {
+            self.raw as *const std::os::raw::c_void
+        }
+    }
+
+    impl Drop for WindowAXHandle {
+        fn drop(&mut self) {
+            if !self.raw.is_null() {
+                unsafe { CFRelease(self.raw as CFTypeRef) };
+            }
+        }
+    }
+    unsafe impl Send for WindowAXHandle {}
+
     /// Read an AX attribute as a +1 retained CFTypeRef. Caller owns.
     unsafe fn copy_attr(element: AXUIElementRef, attr: &str) -> Option<CFTypeRef> {
         let cf_attr = CFString::new(attr);
@@ -1134,3 +1179,10 @@ mod macos {
         }
     }
 }
+
+/// Re-export of the cross-module AX accessor used by
+/// `actions::browser_tabs`. The `mod macos` itself is private; this
+/// `pub(crate) use` makes the lookup function reachable from other
+/// modules in the crate without exposing the module's internals.
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{lookup_window_ax, WindowAXHandle};

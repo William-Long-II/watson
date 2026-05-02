@@ -78,6 +78,12 @@ const BROWSER_PROCESS_NAMES: &[&str] = &[
     "vivaldi",
     "opera",
     "arc",
+    // macOS variants. Process names from `NSRunningApplication.localizedName`
+    // include "Safari", "Microsoft Edge", "Brave Browser" — the
+    // substring match below catches "edge" / "brave" / "chrome" already,
+    // but Safari has no other token so it's listed explicitly.
+    "safari",
+    "edge",
 ];
 
 pub fn is_browser_process(process_name: &str) -> bool {
@@ -88,17 +94,22 @@ pub fn is_browser_process(process_name: &str) -> bool {
 #[cfg(target_os = "windows")]
 pub use win::{focus_browser_tab, get_browser_tabs};
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub use mac::{focus_browser_tab, get_browser_tabs};
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn get_browser_tabs(_hwnd: i64, _process_name: &str) -> Result<Vec<TabEntry>, String> {
-    // UIA is Windows-only. macOS would need NSAccessibility / AXUIElement;
-    // Linux has AT-SPI but browser support is patchy. Both are follow-up
-    // work — return empty so the search path stays well-behaved.
+    // Linux has AT-SPI but browser support is patchy and gated
+    // behind per-browser flags / screen-reader presence — tracked
+    // as a separate issue. Until that lands, return empty so the
+    // search path stays well-behaved (window-only switcher rows
+    // still work; tabs simply don't surface).
     Ok(vec![])
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn focus_browser_tab(_hwnd: i64, _index: i32) -> Result<(), String> {
-    Err("Browser tab switching is Windows-only in v1".to_string())
+    Err("Browser tab switching not yet implemented on this platform".to_string())
 }
 
 // --- Windows UIA implementation ---
@@ -297,5 +308,316 @@ mod win {
     fn _assert_variant_from_i32() {
         let _ = VARIANT::from(UIA_TabItemControlTypeId.0);
         let _ = UIA_NamePropertyId; // silence dead_code if unused
+    }
+}
+
+// --- macOS Accessibility (AX) implementation ---
+//
+// Browser tabs on macOS are exposed via the same Accessibility API
+// the rest of the macOS switcher uses. The window-switcher side-table
+// in `actions::windows::macos` already holds a retained
+// `AXUIElementRef` for each surfaced browser window; we look up that
+// ref via `lookup_window_ax` and walk its descendants for the tab
+// strip.
+//
+// Tab-strip role conventions per browser:
+//
+// - **Safari** — tab strip is `AXTabGroup` directly; children are
+//   `AXRadioButton` (counterintuitive but matches the AppKit segment
+//   control they're built on). `AXPress` switches.
+// - **Chromium-family** (Chrome / Brave / Edge / Vivaldi / Opera /
+//   Arc) — tab strip is also `AXTabGroup` with `AXRadioButton`
+//   children. Arc's sidebar is an `AXOutline` + `AXRow` instead;
+//   we fall back to that role when no `AXTabGroup` is found.
+// - **Firefox** — its a11y tree is lazy on macOS; first query may
+//   return empty. The generic `AXTabGroup` walk below works once
+//   the tree is populated.
+//
+// Performance: the AX tree walk crosses a process boundary per call.
+// We mirror the Windows UIA cache (1s TTL keyed by hwnd) so repeated
+// keystrokes on the search hot path don't repay the walk.
+
+#[cfg(target_os = "macos")]
+mod mac {
+    use super::TabEntry;
+    use crate::actions::windows::lookup_window_ax;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::os::raw::{c_int, c_void};
+    use std::time::{Duration, Instant};
+
+    use core_foundation::array::{CFArray, CFArrayRef};
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::string::{CFString, CFStringRef};
+
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+
+    type AXUIElementRef = *const c_void;
+    type AXError = i32;
+    const AX_OK: AXError = 0;
+
+    const K_AX_ROLE_ATTRIBUTE: &str = "AXRole";
+    const K_AX_CHILDREN_ATTRIBUTE: &str = "AXChildren";
+    const K_AX_TITLE_ATTRIBUTE: &str = "AXTitle";
+    const K_AX_DESCRIPTION_ATTRIBUTE: &str = "AXDescription";
+    const K_AX_PRESS_ACTION: &str = "AXPress";
+
+    // Roles we consider "tab containers". AXTabGroup is the standard
+    // one (Safari / Chromium); AXOutline is Arc's sidebar fallback.
+    const TAB_CONTAINER_ROLES: &[&str] = &["AXTabGroup", "AXOutline"];
+    // Roles we consider "tabs" inside a container.
+    const TAB_LEAF_ROLES: &[&str] = &["AXRadioButton", "AXTab", "AXRow"];
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXUIElementCopyAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> AXError;
+        fn AXUIElementPerformAction(
+            element: AXUIElementRef,
+            action: CFStringRef,
+        ) -> AXError;
+    }
+
+    thread_local! {
+        /// 1-second TTL cache keyed by window hwnd. Same lifetime
+        /// strategy as the Windows UIA module — repeated search
+        /// keystrokes within a single user interaction reuse the
+        /// previous walk's results.
+        static TAB_CACHE: RefCell<HashMap<i64, (Instant, Vec<TabEntry>)>> =
+            RefCell::new(HashMap::new());
+    }
+    const CACHE_TTL: Duration = Duration::from_secs(1);
+
+    /// RAII for a +1 retained AX element. Drop releases.
+    struct AXRef(AXUIElementRef);
+    impl AXRef {
+        unsafe fn take(p: AXUIElementRef) -> Option<Self> {
+            if p.is_null() {
+                None
+            } else {
+                Some(AXRef(p))
+            }
+        }
+        fn as_raw(&self) -> AXUIElementRef {
+            self.0
+        }
+    }
+    impl Drop for AXRef {
+        fn drop(&mut self) {
+            if !self.0.is_null() {
+                unsafe { CFRelease(self.0 as CFTypeRef) };
+            }
+        }
+    }
+
+    unsafe fn copy_attr(element: AXUIElementRef, attr: &str) -> Option<CFTypeRef> {
+        let cf_attr = CFString::new(attr);
+        let mut out: CFTypeRef = std::ptr::null();
+        let err =
+            AXUIElementCopyAttributeValue(element, cf_attr.as_concrete_TypeRef(), &mut out);
+        if err != AX_OK || out.is_null() {
+            None
+        } else {
+            Some(out)
+        }
+    }
+
+    fn read_string_attr(element: AXUIElementRef, attr: &str) -> Option<String> {
+        unsafe {
+            let raw = copy_attr(element, attr)?;
+            let cf_str = CFString::wrap_under_create_rule(raw as CFStringRef);
+            Some(cf_str.to_string())
+        }
+    }
+
+    /// Read the `AXChildren` array as a Vec of retained AXRefs. We
+    /// retain each child since `CFArrayGetValueAtIndex` returns a
+    /// borrowed reference and we want to outlive the array.
+    fn read_children(element: AXUIElementRef) -> Vec<AXRef> {
+        let raw = match unsafe { copy_attr(element, K_AX_CHILDREN_ATTRIBUTE) } {
+            Some(p) => p,
+            None => return Vec::new(),
+        };
+        let array: CFArray<CFTypeRef> =
+            unsafe { CFArray::wrap_under_create_rule(raw as CFArrayRef) };
+        let mut out = Vec::with_capacity(array.len() as usize);
+        for i in 0..array.len() {
+            if let Some(item_ref) = array.get(i) {
+                let p = *item_ref;
+                if !p.is_null() {
+                    unsafe {
+                        core_foundation::base::CFRetain(p);
+                        if let Some(r) = AXRef::take(p as AXUIElementRef) {
+                            out.push(r);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Depth-first search for a descendant whose AXRole matches one
+    /// of `TAB_CONTAINER_ROLES`. Bounded depth (we walk at most 6
+    /// levels) so a malformed tree can't loop us.
+    fn find_tab_container(root: AXUIElementRef, depth: u8) -> Option<AXRef> {
+        if depth > 6 {
+            return None;
+        }
+        // Check root itself.
+        if let Some(role) = read_string_attr(root, K_AX_ROLE_ATTRIBUTE) {
+            if TAB_CONTAINER_ROLES.contains(&role.as_str()) {
+                unsafe {
+                    core_foundation::base::CFRetain(root as CFTypeRef);
+                    return AXRef::take(root);
+                }
+            }
+        }
+        // Recurse into children.
+        for child in read_children(root) {
+            if let Some(found) = find_tab_container(child.as_raw(), depth + 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Read the visible label of a tab. Tabs commonly carry their
+    /// page title in `AXTitle`; some builds (Arc rows, certain
+    /// Chromium beta channels) put it in `AXDescription` instead.
+    /// Try both.
+    fn read_tab_label(tab: AXUIElementRef) -> Option<String> {
+        if let Some(t) = read_string_attr(tab, K_AX_TITLE_ATTRIBUTE) {
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        if let Some(t) = read_string_attr(tab, K_AX_DESCRIPTION_ATTRIBUTE) {
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        None
+    }
+
+    pub fn get_browser_tabs(hwnd: i64, process_name: &str) -> Result<Vec<TabEntry>, String> {
+        // Cache check.
+        let now = Instant::now();
+        let cached = TAB_CACHE.with(|c| {
+            let map = c.borrow();
+            map.get(&hwnd)
+                .filter(|(t, _)| now.duration_since(*t) < CACHE_TTL)
+                .map(|(_, tabs)| tabs.clone())
+        });
+        if let Some(tabs) = cached {
+            return Ok(tabs);
+        }
+
+        let handle = match lookup_window_ax(hwnd) {
+            Some(h) => h,
+            None => return Ok(Vec::new()), // Window not in current snapshot.
+        };
+        let window = handle.raw() as AXUIElementRef;
+
+        let container = match find_tab_container(window, 0) {
+            Some(c) => c,
+            None => {
+                // No tab strip found — probably a non-browser window
+                // with a process name in the BROWSER list (e.g., a
+                // helper). Cache empty so we don't re-walk the tree.
+                TAB_CACHE.with(|c| {
+                    c.borrow_mut().insert(hwnd, (now, Vec::new()));
+                });
+                return Ok(Vec::new());
+            }
+        };
+
+        let mut tabs = Vec::new();
+        for (idx, child) in read_children(container.as_raw()).into_iter().enumerate() {
+            // Filter children by role: only tab leaves count. Some
+            // tab strips include separators / "+" buttons that we
+            // don't want to surface.
+            let role = match read_string_attr(child.as_raw(), K_AX_ROLE_ATTRIBUTE) {
+                Some(r) => r,
+                None => continue,
+            };
+            if !TAB_LEAF_ROLES.contains(&role.as_str()) {
+                continue;
+            }
+            let label = match read_tab_label(child.as_raw()) {
+                Some(l) => l,
+                None => continue,
+            };
+            tabs.push(TabEntry {
+                window_hwnd: hwnd,
+                process_name: process_name.to_string(),
+                name: label,
+                index: idx as i32,
+            });
+        }
+
+        TAB_CACHE.with(|c| {
+            c.borrow_mut().insert(hwnd, (now, tabs.clone()));
+        });
+        Ok(tabs)
+    }
+
+    pub fn focus_browser_tab(hwnd: i64, index: i32) -> Result<(), String> {
+        let handle = lookup_window_ax(hwnd)
+            .ok_or_else(|| format!("window {hwnd} not in snapshot — re-search"))?;
+        let window = handle.raw() as AXUIElementRef;
+        let pid = handle.pid;
+
+        let container = find_tab_container(window, 0)
+            .ok_or_else(|| String::from("no tab strip found in this window"))?;
+
+        // Walk the same children, filter by role, count to `index`.
+        // Re-walking is safer than caching AX refs across IPC: a few
+        // ms of extra work on activation is fine, but a stale ref
+        // would crash.
+        let children = read_children(container.as_raw());
+        let mut leaf_idx = 0;
+        for child in children {
+            let role = match read_string_attr(child.as_raw(), K_AX_ROLE_ATTRIBUTE) {
+                Some(r) => r,
+                None => continue,
+            };
+            if !TAB_LEAF_ROLES.contains(&role.as_str()) {
+                continue;
+            }
+            if leaf_idx == index {
+                // Press the tab.
+                unsafe {
+                    let action = CFString::new(K_AX_PRESS_ACTION);
+                    let err = AXUIElementPerformAction(
+                        child.as_raw(),
+                        action.as_concrete_TypeRef(),
+                    );
+                    if err != AX_OK {
+                        return Err(format!("AX press failed (err {err})"));
+                    }
+                }
+                // Bring the browser to the foreground (cross-Space
+                // activation). Failure is non-fatal.
+                unsafe {
+                    let cls = objc2::class!(NSRunningApplication);
+                    let app: *mut AnyObject =
+                        msg_send![cls, runningApplicationWithProcessIdentifier: pid as c_int];
+                    if !app.is_null() {
+                        let _: () = msg_send![app, activateWithOptions: 1u64];
+                    }
+                }
+                return Ok(());
+            }
+            leaf_idx += 1;
+        }
+
+        Err(format!("tab index {index} out of range"))
     }
 }
