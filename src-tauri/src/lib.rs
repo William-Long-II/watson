@@ -642,16 +642,25 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
 }
 
 /// WAT-301: platform shim for synthesizing a paste keystroke.
-/// Windows uses Win32 `SendInput` directly. macOS uses osascript
-/// System Events. Linux is best-effort via xdotool; if xdotool
-/// isn't installed, the expansion is still on the clipboard and
-/// the user can paste manually.
+/// Windows uses Win32 `SendInput` directly. macOS uses Quartz
+/// `CGEventPost` directly. Linux is best-effort via xdotool;
+/// if xdotool isn't installed, the expansion is still on the
+/// clipboard and the user can paste manually.
 ///
-/// Why not PowerShell + WScript.Shell.SendKeys on Windows: that
-/// path raced the foreground-window change Watson triggers when
-/// hiding, and intermittently toggled NumLock instead of pasting
-/// (KB179987-style behavior). Direct SendInput with virtual-key
-/// codes (VK_CONTROL + VK_V) bypasses SendKeys entirely.
+/// Why direct event APIs and not OS-level scripting (PowerShell
+/// SendKeys on Windows, osascript System Events on macOS):
+///
+/// - **Windows / SendKeys**: raced the foreground-window change
+///   Watson triggers when hiding, and intermittently toggled
+///   NumLock instead of pasting (KB179987-style behavior).
+/// - **macOS / osascript**: requires Automation permission, a
+///   second permission prompt on top of the Accessibility
+///   permission we already require for the switcher. CGEvent
+///   uses the Accessibility grant, so first-launch UX is
+///   one prompt instead of two.
+///
+/// Both new paths also drop the cold-start cost of spawning a
+/// scripting host (~100-150ms on every paste).
 #[cfg(target_os = "windows")]
 fn paste_snippet_via_os() -> Result<(), String> {
     use std::thread::sleep;
@@ -706,15 +715,70 @@ fn paste_snippet_via_os() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn paste_snippet_via_os() -> Result<(), String> {
-    std::process::Command::new("osascript")
-        .args([
-            "-e",
-            "delay 0.08",
-            "-e",
-            r#"tell application "System Events" to keystroke "v" using command down"#,
-        ])
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    use std::os::raw::c_void;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    type CGEventRef = *mut c_void;
+    type CGEventSourceRef = *mut c_void;
+    type CGEventTapLocation = u32;
+    type CGEventFlags = u64;
+    type CGKeyCode = u16;
+    type CFTypeRef = *const c_void;
+
+    /// Quartz session-level tap: posts after WindowServer processes
+    /// events but before they reach apps in the user's session. The
+    /// right level for "I'm a userland tool synthesizing input."
+    const K_CG_SESSION_EVENT_TAP: CGEventTapLocation = 1;
+    /// Modifier flag mask for Command. Apple's `CGEventFlags`
+    /// bits — `kCGEventFlagMaskCommand`.
+    const K_CG_EVENT_FLAG_MASK_COMMAND: CGEventFlags = 0x100000;
+    /// HIToolbox `kVK_ANSI_V` — the V key's layout-independent
+    /// virtual position. Cmd+V is the universal paste shortcut so
+    /// the physical position is what matters, not the user's
+    /// keyboard layout.
+    const K_VK_ANSI_V: CGKeyCode = 0x09;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventCreateKeyboardEvent(
+            source: CGEventSourceRef,
+            virtual_key: CGKeyCode,
+            key_down: bool,
+        ) -> CGEventRef;
+        fn CGEventSetFlags(event: CGEventRef, flags: CGEventFlags);
+        fn CGEventPost(tap: CGEventTapLocation, event: CGEventRef);
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    // Same 80ms grace period as the Windows path: the previously-
+    // focused window needs a beat to fully regain focus after
+    // Watson hides, otherwise the synthesized keystrokes can land
+    // on Watson itself or on the desktop.
+    sleep(Duration::from_millis(80));
+
+    unsafe fn post_v_event(key_down: bool) -> Result<(), String> {
+        let event = CGEventCreateKeyboardEvent(std::ptr::null_mut(), K_VK_ANSI_V, key_down);
+        if event.is_null() {
+            return Err(String::from(
+                "CGEventCreateKeyboardEvent returned null — Accessibility \
+                 permission probably not granted",
+            ));
+        }
+        CGEventSetFlags(event, K_CG_EVENT_FLAG_MASK_COMMAND);
+        CGEventPost(K_CG_SESSION_EVENT_TAP, event);
+        CFRelease(event as CFTypeRef);
+        Ok(())
+    }
+
+    unsafe {
+        post_v_event(true)?; // Cmd+V down
+        post_v_event(false)?; // Cmd+V up
+    }
     Ok(())
 }
 
