@@ -25,8 +25,9 @@ use snippets::SnippetsManager;
 use warnings::{StartupWarning, StartupWarnings};
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
-use search::dispatch::{classify_prefix_route, match_web_search, Route, SubQuery, WebSearchMatch};
-use search::url_builder::build_web_search_url;
+use search::dispatch::{classify_prefix_route, Route, SubQuery};
+use search::provider::ResultProvider;
+use search::providers::web_search::WebSearchProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
 use std::sync::{Arc, RwLock};
 use tauri::{Manager, State};
@@ -408,29 +409,16 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 
     let mut items: Vec<SearchResult> = Vec::new();
 
-    // Web search keyword match. Classification lives in search::dispatch;
-    // URL construction (scheme allowlist + {instance} validation + {query}
-    // encoding) lives in search::url_builder. A builder error (bad scheme,
-    // bad instance) silently skips the result — same policy as NeedsInstance.
-    if let WebSearchMatch::Matched { index, subquery } =
-        match_web_search(&query, &settings.web_searches)
-    {
-        let ws = &settings.web_searches[index];
-        if let Ok(url) = build_web_search_url(&ws.url, ws.instance.as_deref(), &subquery) {
-            items.push(SearchResult {
-                id: format!("web:{}", ws.keyword),
-                name: format!("{}: {}", ws.name, subquery),
-                description: "Web Search".to_string(),
-                icon: ws.icon.clone(),
-                result_type: ResultType::WebSearch,
-                score: 10000,
-                frecency_score: 0.0,
-                preview: None,
-                pinned: false,
-                action: SearchAction::OpenUrl { url },
-            });
+    // Phase 1A: web-search keyword matching now flows through a
+    // `ResultProvider` impl. Same external behavior — classification +
+    // URL construction reuse the existing helpers — but the
+    // dispatcher no longer hand-rolls the SearchResult struct.
+    items.extend(
+        WebSearchProvider {
+            configs: &settings.web_searches,
         }
-    }
+        .search(&query),
+    );
 
     // WAT-301: add snippets whose trigger/name matches the query. Runs
     // as a regular search-pipeline contributor alongside apps and web —
