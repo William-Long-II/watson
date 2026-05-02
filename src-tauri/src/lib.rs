@@ -27,6 +27,7 @@ use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::dispatch::{classify_prefix_route, Route, SubQuery};
 use search::provider::ResultProvider;
+use search::providers::snippets::SnippetsProvider;
 use search::providers::web_search::WebSearchProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
 use std::sync::{Arc, RwLock};
@@ -237,19 +238,6 @@ fn calculation_result(calc: calculator::Calculation) -> SearchResult {
     }
 }
 
-/// WAT-301: first-line preview of a snippet's expansion for the
-/// description row. Collapses multi-line expansions into a single
-/// line and truncates with an ellipsis so long snippets still fit.
-fn snippet_preview(expansion: &str) -> String {
-    let first_line = expansion.lines().next().unwrap_or("");
-    let clipped: String = first_line.chars().take(80).collect();
-    if first_line.chars().count() > 80 || expansion.contains('\n') {
-        format!("{clipped}…")
-    } else {
-        clipped
-    }
-}
-
 /// WAT-306: dispatch for the `>` prefix. `>` alone returns every command
 /// in its registered order; `>foo` (or `> foo`) filters aliases by
 /// case-insensitive substring match. Runs exclusively — no apps, web
@@ -420,30 +408,16 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         .search(&query),
     );
 
-    // WAT-301: add snippets whose trigger/name matches the query. Runs
-    // as a regular search-pipeline contributor alongside apps and web —
+    // Phase 1A: snippets via `ResultProvider`. WAT-301 — runs as a
+    // regular search-pipeline contributor alongside apps and web,
     // no special prefix. Users who want scoped lookup can use a
     // `;`-prefixed trigger by convention.
-    if let Ok(snippets) = state.snippets.search(&query) {
-        for snippet in snippets {
-            items.push(SearchResult {
-                // Highlight the trigger so the user can see how they'd
-                // type next time without opening Settings.
-                id: snippet.id.clone(),
-                name: format!("{}  —  {}", snippet.trigger, snippet.name),
-                description: snippet_preview(&snippet.expansion),
-                icon: Some("snippet".to_string()),
-                result_type: ResultType::Snippet,
-                // Between web (10000) and apps (0) so snippets surface
-                // reliably when triggered but don't swamp app matches.
-                score: 8000,
-                frecency_score: 0.0,
-                preview: None,
-                pinned: false,
-                action: SearchAction::PasteSnippet { expansion: snippet.expansion },
-            });
+    items.extend(
+        SnippetsProvider {
+            manager: &state.snippets,
         }
-    }
+        .search(&query),
+    );
 
     // Add apps
     if !query.contains(' ') || items.is_empty() {
