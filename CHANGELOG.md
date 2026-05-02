@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.6.0] - 2026-05-02
+
 ### Added
 - **Cross-Platform Switcher Parity** - The "Switch to" feature now works on all three desktop platforms. Search any open window's title or browser tab to focus it directly:
   - **macOS** (#61, #65) - Window enumeration + focus via the Accessibility API (`AXUIElement`); browser tabs via AX tree walk for Safari, Chromium-family (Chrome / Brave / Edge / Vivaldi / Opera) and Arc. Cross-Space activation via `NSRunningApplication.activate`.
