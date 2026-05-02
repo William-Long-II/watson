@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Cross-Platform Switcher Parity** - The "Switch to" feature now works on all three desktop platforms. Search any open window's title or browser tab to focus it directly:
+  - **macOS** (#61, #65) - Window enumeration + focus via the Accessibility API (`AXUIElement`); browser tabs via AX tree walk for Safari, Chromium-family (Chrome / Brave / Edge / Vivaldi / Opera) and Arc. Cross-Space activation via `NSRunningApplication.activate`.
+  - **Linux X11** (#62) - Window enumeration + focus via EWMH (`_NET_CLIENT_LIST` + `_NET_ACTIVE_WINDOW`) using pure-Rust `x11rb`. Browser tabs (#66) via AT-SPI for Firefox, Chromium-family.
+  - **Linux Wayland** - Window switcher on wlroots-based compositors (Sway, Hyprland, river, Wayfire) via `wlr-foreign-toplevel-management-unstable-v1`. GNOME/Mutter and KDE/KWin surface a clear "compositor unsupported" message.
+- **macOS Accessibility Onboarding** - First-launch banner detects when the Accessibility permission isn't granted, with one-click "Grant access" (deep-link to System Settings → Privacy & Security → Accessibility) and "Re-check" (re-probes without restarting Watson).
+
+### Changed
+- **`focus_window` reliability on Windows** - Direct Win32 FFI replaces the prior PowerShell shell-out so multi-window apps (Brave, VS Code, Slack workspaces) correctly enumerate one row per window instead of one per process. Foreground rights handled via `AttachThreadInput`.
+
+### Technical
+- New per-platform deps under `cfg(target_os)` gates: `x11rb`, `zbus` (with `blocking`), `wayland-client`, `wayland-protocols-wlr` on Linux; `core-foundation`, `objc2-app-kit` on macOS; `windows = "0.61"` UIA features on Windows.
+- AT-SPI client uses raw zbus proxies (no `atspi` crate) so the dep surface stays small and the search hot path remains synchronous.
+- Wayland backend uses per-call connections + 4 roundtrips to drain the protocol bootstrap; toplevel identity is a SipHash of `(app_id, title)` masked to JSON's safe-integer range.
+
 
 ## [1.5.1] - 2026-05-01
 
