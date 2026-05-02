@@ -978,7 +978,7 @@ mod linux_atspi {
             if leaf_idx == index {
                 // AT-SPI Action interface: DoAction(0) is "click" for
                 // most accessibles; for tabs it equates to selection.
-                let action = Proxy::new(&conn, &cb, cp.as_str(), ACTION_IFACE)
+                let action = Proxy::new(&conn, cb.as_str(), cp.as_str(), ACTION_IFACE)
                     .map_err(|e| format!("action proxy: {e}"))?;
                 let _: bool = action
                     .call("DoAction", &0_i32)
