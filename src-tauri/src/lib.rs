@@ -642,27 +642,65 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
 }
 
 /// WAT-301: platform shim for synthesizing a paste keystroke.
-/// Windows uses PowerShell SendKeys (same lever as WAT-302). macOS
-/// uses osascript System Events. Linux is best-effort via xdotool;
-/// if xdotool isn't installed, the expansion is still on the
-/// clipboard and the user can paste manually.
+/// Windows uses Win32 `SendInput` directly. macOS uses osascript
+/// System Events. Linux is best-effort via xdotool; if xdotool
+/// isn't installed, the expansion is still on the clipboard and
+/// the user can paste manually.
+///
+/// Why not PowerShell + WScript.Shell.SendKeys on Windows: that
+/// path raced the foreground-window change Watson triggers when
+/// hiding, and intermittently toggled NumLock instead of pasting
+/// (KB179987-style behavior). Direct SendInput with virtual-key
+/// codes (VK_CONTROL + VK_V) bypasses SendKeys entirely.
 #[cfg(target_os = "windows")]
 fn paste_snippet_via_os() -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    // A tiny start-sleep gives the previously-focused window time to
-    // fully regain focus after Watson hides. SendKeys fires Ctrl+V.
-    std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "Start-Sleep -Milliseconds 80; (New-Object -ComObject WScript.Shell).SendKeys('^v')",
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    use std::thread::sleep;
+    use std::time::Duration;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+        KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_V,
+    };
+
+    // Give the previously-focused window a moment to fully regain
+    // focus after Watson hides. Without this, the synthesized
+    // Ctrl+V can race the activation and land on the desktop or on
+    // Watson itself (now hidden).
+    sleep(Duration::from_millis(80));
+
+    fn key(vk: VIRTUAL_KEY, key_up: bool) -> INPUT {
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: if key_up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        }
+    }
+
+    // Down-down-up-up so Ctrl is held while V is struck.
+    let inputs = [
+        key(VK_CONTROL, false),
+        key(VK_V, false),
+        key(VK_V, true),
+        key(VK_CONTROL, true),
+    ];
+
+    let n = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+    if n != inputs.len() as u32 {
+        return Err(format!(
+            "SendInput accepted only {n} of {} keystrokes",
+            inputs.len()
+        ));
+    }
     Ok(())
 }
 

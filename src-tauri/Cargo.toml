@@ -43,6 +43,10 @@ windows = { version = "0.61", features = [
     "Win32_System_Com",
     "Win32_System_Variant",
     "Win32_UI_Accessibility",
+    # SendInput for snippet paste — replaces a flaky PowerShell
+    # SendKeys shell-out that toggled NumLock under certain
+    # foreground-change race conditions.
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
