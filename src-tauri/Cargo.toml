@@ -57,7 +57,7 @@ x11rb = "0.13"
 # tokio's runtime into actions code. We use raw proxies (no `atspi`
 # crate) to keep the dependency surface small and to avoid coupling
 # to that crate's still-evolving API.
-zbus = { version = "4", default-features = false, features = ["blocking"] }
+zbus = { version = "4", features = ["blocking"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Accessibility (AXUIElement) FFI declared inline; this gets us the
