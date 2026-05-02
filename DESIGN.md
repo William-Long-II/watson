@@ -129,6 +129,87 @@ just adds a leaf feature.
   - Startup-warning banner + notifications drawer collapse to a
     single drawer-as-history surface.
 
+### Phase 1B — UI/UX foundation (parallel to 1A; target: 4-6 weeks)
+
+The architecture refactor pays down backend debt; this pays down
+visual debt. Most of it is CSS/component work and doesn't block on
+the backend. The goal is to move from "functional Tailwind defaults"
+to a coherent visual language that holds up next to Raycast and
+Linear.
+
+Adopted pillars (from the May 2026 next-level-feel research):
+
+- **Tokenized color system.** One semantic palette: one accent +
+  9-step neutral ramp, OKLCH-tuned for WCAG. Replaces the dead
+  `accent_color` field and the `blue-500`-everywhere problem.
+  Stripe / Vercel Geist as references.
+- **Premium-cramped density.** 32px result rows (vs. today's 64px),
+  13-14px label, mono shortcut chip on right rail, tight
+  letter-spacing (~-1.5%), warm neutrals — `#1a1a1c` / `#fafaf9`,
+  not pure black/white. Reference: Notion Calendar's tightness +
+  Raycast row.
+- **Motion baseline.** ~150ms ease-out on activation (spring scale
+  0.98→1.0 + 6px Y-translate), panel mount/swap, accept toasts.
+  Restraint over showpieces — Linear's house style. Window resize
+  animates instead of jumping.
+- **Window chrome with depth.** 12-14px corner radius, 1px inner
+  hairline at 8% white, drop shadow `0 24px 48px rgba(0,0,0,0.35)`,
+  macOS vibrancy where available. Replaces the current
+  `transparent: false, shadow: false` flat-on-desktop look.
+- **Persistent contextual hint bar.** Bottom strip with mono
+  shortcut chips that swap with the focused row in <50ms. Closes
+  the discoverability gap on Cmd+K, Tab/Shift+Tab, backtick, and
+  per-result actions — none of which are visible today.
+- **Optimistic feedback.** Mutations apply instantly; skeletons
+  only on cold loads >200ms; success toast in <100ms. Zero
+  spinners. Linear / Superhuman pattern.
+- **Single-stroke iconography family.** One icon set at one
+  weight, monochrome by default, accent only on focus. Replaces
+  the ten-gradient backgrounds with a calmer scan rhythm (kind
+  badges still differentiate).
+
+Quick cuts (ship even before the foundation lands — tens of
+minutes, but they're embarrassing):
+
+- Update Quick Tips to reflect `n ` / `f ` / `s ` (the bare-letter
+  shortcuts were deprecated; the empty state still teaches them).
+- Strip the two emoji from panel headers (📝 NoteEditor, 📋
+  Scratchpad) — use the existing SVG icon family.
+- Fix WatsonLogo for dark mode (hardcoded `fill-gray-700` makes
+  the logo nearly invisible against the dark background).
+- Wire up the `prefers-color-scheme` listener so OS theme changes
+  propagate without a Watson restart.
+
+### Phase 1C — Advanced UI (depends on Phase 1A's panel host)
+
+Uses the new `<PanelHost>` from the structural refactor:
+
+- **Split-with-detail-pane.** Right-hand Markdown/preview panel
+  revealed when the focused row carries detail (notes, files,
+  clipboard entries with text content, browser tabs with URL).
+  Uses the empty right half of the window we currently waste.
+  Raycast `List + Detail` pattern.
+- **Animated panel transitions.** Replaces the current zero-
+  duration ternary swap in `App.tsx:654-665`. Cross-fade + height
+  ease (~200ms cubic-bezier).
+- **First-30-seconds onboarding.** Empty state shows *one*
+  contextual sample query and the chord to run it. No modal tour.
+- **Theme Studio (foundation).** Ship 2-3 polished defaults; expose
+  tokens via a new Settings tab. Power users can theme; defaults
+  stay restrained. Full extension-aware theming (where extensions
+  consume *semantic* colors) lands in Phase 2c.
+
+What we're explicitly **not** doing:
+
+- ❌ Animation on every keystroke / row-focus — creates perceived
+  lag. Motion fires on state changes only.
+- ❌ Sound on every action — users mute within a week.
+- ❌ "Vibe" themes with heavy gradients/glassmorphism that fight
+  OS accent settings. One excellent dark + one excellent light;
+  community can ship the wild stuff once Theme Studio exists.
+- ❌ Inline result editing — too much surface area for v1.
+  Revisit after Scenes ship.
+
 ### Phase 2a — Scenes (first flagship, target: 3-4 weeks after Phase 1)
 
 A **Scene** is a named, ordered list of Actions. Activating a Scene
@@ -193,6 +274,15 @@ When evaluating a feature proposal:
 4. **Is it on the floor that Spotlight already gives away?** If yes,
    we can ship it but it doesn't move the needle competitively. Spend
    accordingly.
+5. **Does the visual shape use the design tokens?** Hardcoded
+   `blue-500`, ad-hoc padding values, new border-radius numbers, or
+   one-off animation durations are signals that the feature is
+   bypassing Phase 1B's foundation. Either use the tokens or extend
+   them — don't go around them.
+6. **Does motion fire on input or only on state change?** New
+   animations on every keystroke / row-focus creates perceived lag.
+   Reserve motion for window show/hide, panel mount, accept toasts,
+   and other discrete state transitions.
 
 ## Process notes
 
