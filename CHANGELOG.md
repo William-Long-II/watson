@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.6.2] - 2026-05-02
+
 ### Changed
 - **New Watson mark** - Replaces the bowler-hat illustration with a geometric two-tone "W" whose strokes converge into a downward-arrow vertex at center, doubling as a cursor / launch-point metaphor. The final up-stroke carries the amber-600 brand color so the mark stays unmistakably *Watson* without the costumed-mascot baggage. Updated in both the in-app header and the OS-level icons (Windows taskbar, macOS dock, Linux launcher menus).
 
