@@ -235,66 +235,114 @@ body {
 }
 
 /* =====================================================================
- * Aero-glass + Hexclad-mesh surface (DARK MODE EXPLORATION)
+ * Aero-glass + Hexclad-mesh surface
  *
  * Visual direction: late-2000s Aero gloss (subtle vertical gradient,
  * inner top highlight, light-catching edge) crossed with the hex
- * mesh pattern from Hexclad cookware (subtle dark hexagonal grid as
- * texture, not loud gradient). The Watson amber accent stays as the
- * single brand spot color — used here as a warm corner glow at top-
- * right that catches the eye without dominating.
+ * mesh pattern from Hexclad cookware (subtle hexagonal grid as
+ * texture). The Watson amber accent stays as the single brand spot
+ * color — a warm corner glow at top-right.
  *
- * Why fake it instead of using true OS transparency: the previous
- * attempt at `transparent: true` interacted badly with the resize
- * math and clipped result rows. Layered gradients give us the depth
- * + character of glass without the platform-level surface area.
- * Real backdrop-filter: blur can come later once form factor is
- * decided.
+ * Theme-aware via CSS custom properties: the surface tokens
+ * (`--glass-base-top`, `--glass-base-bottom`, `--glass-glow`,
+ * `--glass-top-highlight`, `--glass-hex-image`) and rim tokens
+ * (`--glass-rim-top`, `--glass-rim-bottom`) are defined in
+ * `:root` (light) and overridden in `.dark`. One `.glass-surface`
+ * class consumes them — no per-theme class names.
  *
  * Stacking (top → bottom in CSS = visual top → bottom):
  *   1. Inner top highlight (Aero gloss)
- *   2. Subtle warm amber glow at top-right corner
+ *   2. Amber corner glow at top-right
  *   3. Hex grid texture
  *   4. Base vertical gradient
  * ===================================================================== */
 
-.glass-surface-dark {
+:root {
+  /* --- Light-mode glass tokens --- */
+
+  /* Base gradient: warm-leaning very-light surface. Top is near-white
+   * (oklch 99%), bottom drops to oklch 95% to give a hint of vertical
+   * depth without going into mid-tone. Slight warm hue (90°) keeps
+   * harmony with the amber accent. */
+  --glass-base-top:    oklch(99% 0.005 90);
+  --glass-base-bottom: oklch(95% 0.005 90);
+
+  /* Inner top highlight: a soft white falloff from the top edge.
+   * On light surfaces this is barely-visible "edge gloss" rather
+   * than the more prominent dark-mode highlight. */
+  --glass-top-highlight: rgba(255, 255, 255, 0.4);
+
+  /* Amber corner glow: warm spot at top-right. Slightly stronger
+   * alpha than dark mode since light surfaces absorb less of the
+   * amber's saturation visually. */
+  --glass-glow: rgba(217, 119, 6, 0.10);
+
+  /* Hex mesh texture: dark strokes on the light surface. Opacity
+   * tuned to MATCH the perceived prominence of dark mode's white
+   * strokes — black-on-light reads less prominent than white-on-
+   * dark at the same alpha (perceptual asymmetry), so light uses
+   * 9% vs. dark's 7% to land at roughly equal visual weight in
+   * the inverted treatment. Same path geometry as dark mode; only
+   * the fill color flips. */
+  --glass-hex-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'><path fill-rule='evenodd' fill='%23000000' fill-opacity='0.09' d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/></svg>");
+
+  /* Rim tokens: 1px highlight line at the top edge + 1px hairline
+   * shadow at the bottom. On light surfaces, the bottom shadow is
+   * darker (more contrast against the bright surface) and the top
+   * highlight is more saturated white. */
+  --glass-rim-top:    rgba(255, 255, 255, 0.65);
+  --glass-rim-bottom: rgba(0, 0, 0, 0.07);
+}
+
+.dark {
+  /* --- Dark-mode glass tokens (refined values from Phase 1B
+   *     iteration, validated via window captures) --- */
+
+  /* Base gradient: cool-dark, slightly less blue chroma (0.010 vs.
+   * the previous 0.020) so white strokes pop truer-white rather
+   * than tinted blue. */
+  --glass-base-top:    oklch(22% 0.010 280);
+  --glass-base-bottom: oklch(15% 0.010 280);
+
+  --glass-top-highlight: rgba(255, 255, 255, 0.07);
+  --glass-glow:          rgba(217, 119, 6, 0.07);
+
+  --glass-hex-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'><path fill-rule='evenodd' fill='%23ffffff' fill-opacity='0.07' d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/></svg>");
+
+  --glass-rim-top:    rgba(255, 255, 255, 0.12);
+  --glass-rim-bottom: rgba(0, 0, 0, 0.25);
+}
+
+.glass-surface {
   background:
-    /* 1. Inner top highlight — subtle white gloss falling from the top
-     *    edge, fading by ~35% down. Reads as "light coming from above". */
+    /* 1. Inner top highlight — soft falloff from the top edge, fading
+     *    by ~35% down. Reads as "light coming from above". */
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.07) 0%,
-      rgba(255, 255, 255, 0.02) 18%,
+      var(--glass-top-highlight) 0%,
       transparent 38%
     ),
     /* 2. Amber corner glow — Watson brand color as a soft top-right
-     *    warm-spot. Low alpha (~6%) so it's a *suggestion* of warmth
-     *    rather than a full color wash. */
+     *    warm-spot. Low alpha so it's a *suggestion* of warmth, not
+     *    a wash. */
     radial-gradient(
       ellipse 60% 80% at 100% 0%,
-      rgba(217, 119, 6, 0.07) 0%,
-      rgba(217, 119, 6, 0) 50%
+      var(--glass-glow) 0%,
+      transparent 50%
     ),
-    /* 3. Honeycomb mesh texture — adapted from the
-     *    Heropatterns "hexagons" tile, which encodes a true
-     *    interconnected honeycomb (alternating rows offset by half
-     *    a hex width so strokes form a continuous mesh, not stacked
-     *    isolated hexes). 28×49 tile is ~half the size of the
-     *    original wallpaper-grid attempt while still tessellating
-     *    properly. fill-rule=evenodd draws the hex *outline* as a
-     *    pair of concentric polygons so the line weight stays
-     *    consistent regardless of zoom. */
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'><path fill-rule='evenodd' fill='%23ffffff' fill-opacity='0.07' d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/></svg>"),
-    /* 4. Base vertical gradient — slightly lighter at top, darker at
-     *    bottom. Pulled the chroma down (0.020 → 0.010) so the
-     *    underlying tone reads less blue-purple — that lets the
-     *    white hex strokes appear truer-white rather than tinted
-     *    by the surface color. */
+    /* 3. Honeycomb mesh texture — Heropatterns 28×49 honeycomb tile
+     *    rendered at background-size 10×17.5 → "brushed metal grain"
+     *    rather than wallpaper grid. Theme-aware: white strokes
+     *    in dark mode, black strokes in light mode (different
+     *    SVG data URIs in --glass-hex-image). */
+    var(--glass-hex-image),
+    /* 4. Base vertical gradient — slightly lighter at top, darker
+     *    at bottom. Theme-aware via --glass-base-top /
+     *    --glass-base-bottom. */
     linear-gradient(
       180deg,
-      oklch(22% 0.010 280) 0%,
-      oklch(15% 0.010 280) 100%
+      var(--glass-base-top) 0%,
+      var(--glass-base-bottom) 100%
     );
   background-size:
     auto,
@@ -308,13 +356,13 @@ body {
     no-repeat;
 }
 
-/* Light-catching top hairline — pairs with the surface to read as
- * "rim of glass". 1px line at the top edge in 12% white, falling
- * off via a thin gradient to nothing on the sides/bottom. */
-.glass-rim-dark {
+/* Light-catching top hairline + bottom shadow line — pairs with the
+ * surface to read as "rim of glass". 1px highlight at the top, 1px
+ * shadow at the bottom, theme-aware via --glass-rim-* tokens. */
+.glass-rim {
   position: relative;
 }
-.glass-rim-dark::before {
+.glass-rim::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -322,15 +370,11 @@ body {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.12) 0%,
+    var(--glass-rim-top) 0%,
     transparent 1.5px,
     transparent calc(100% - 1px),
-    rgba(0, 0, 0, 0.25) 100%
+    var(--glass-rim-bottom) 100%
   );
-  /* This needs to render ABOVE the surface gradients but BELOW any
-   * focus rings or content. The empty-content + linear-gradient
-   * trick gives us a 1px-tall top highlight + 1px-tall bottom
-   * shadow without needing two separate ::before / ::after
-   * pseudo-elements. */
+  /* Renders ABOVE the surface gradients but BELOW content. */
   z-index: 1;
 }
