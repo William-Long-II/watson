@@ -24,12 +24,13 @@ pub struct WindowsProvider<'a> {
     pub windows: &'a [WindowEntry],
 }
 
+#[async_trait::async_trait]
 impl<'a> ResultProvider for WindowsProvider<'a> {
     fn name(&self) -> &'static str {
         "windows"
     }
 
-    fn search(&self, _query: &str) -> Vec<SearchResult> {
+    async fn search(&self, _query: &str) -> Vec<SearchResult> {
         // Query intentionally ignored — fuzzy ranking lives in
         // `SearchEngine::search` downstream and handles all kinds
         // uniformly.
@@ -68,20 +69,20 @@ mod tests {
         }
     }
 
-    #[test]
-    fn empty_windows_returns_empty() {
+    #[tokio::test]
+    async fn empty_windows_returns_empty() {
         let p = WindowsProvider { windows: &[] };
-        assert!(p.search("").is_empty());
+        assert!(p.search("").await.is_empty());
     }
 
-    #[test]
-    fn each_window_becomes_one_result_with_focus_window_action() {
+    #[tokio::test]
+    async fn each_window_becomes_one_result_with_focus_window_action() {
         let windows = vec![
             win(0x100, "Project A — VS Code", "code"),
             win(0x200, "Inbox — Mail", "mail"),
         ];
         let p = WindowsProvider { windows: &windows };
-        let results = p.search("");
+        let results = p.search("").await;
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].name, "Project A — VS Code");
         assert!(matches!(
@@ -91,8 +92,8 @@ mod tests {
         assert_eq!(results[1].id, "win:200");
     }
 
-    #[test]
-    fn ids_are_distinct_for_different_hwnds_with_same_title() {
+    #[tokio::test]
+    async fn ids_are_distinct_for_different_hwnds_with_same_title() {
         // Multi-window apps (browser with two windows of the same
         // page title) need distinct ids or the listbox de-dupes them
         // against each other.
@@ -101,17 +102,20 @@ mod tests {
             win(0x101, "GitHub", "browser"),
         ];
         let p = WindowsProvider { windows: &windows };
-        let results = p.search("");
+        let results = p.search("").await;
         assert_eq!(results[0].id, "win:100");
         assert_eq!(results[1].id, "win:101");
         assert_ne!(results[0].id, results[1].id);
     }
 
-    #[test]
-    fn description_uses_process_name() {
+    #[tokio::test]
+    async fn description_uses_process_name() {
         let windows = vec![win(0x1, "Whatever", "Custom Process")];
         let p = WindowsProvider { windows: &windows };
-        assert_eq!(p.search("")[0].description, "Switch to Custom Process");
+        assert_eq!(
+            p.search("").await[0].description,
+            "Switch to Custom Process"
+        );
     }
 
     #[test]

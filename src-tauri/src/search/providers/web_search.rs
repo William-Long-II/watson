@@ -27,12 +27,13 @@ pub struct WebSearchProvider<'a> {
     pub configs: &'a [WebSearch],
 }
 
+#[async_trait::async_trait]
 impl<'a> ResultProvider for WebSearchProvider<'a> {
     fn name(&self) -> &'static str {
         "web_search"
     }
 
-    fn search(&self, query: &str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         let WebSearchMatch::Matched { index, subquery } = match_web_search(query, self.configs)
         else {
             return Vec::new();
@@ -78,18 +79,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn no_match_returns_empty() {
+    #[tokio::test]
+    async fn no_match_returns_empty() {
         let configs = vec![cfg("Google", "g", "https://google.com/?q={query}")];
         let p = WebSearchProvider { configs: &configs };
-        assert!(p.search("hello world").is_empty());
+        assert!(p.search("hello world").await.is_empty());
     }
 
-    #[test]
-    fn match_returns_one_result_with_open_url_action() {
+    #[tokio::test]
+    async fn match_returns_one_result_with_open_url_action() {
         let configs = vec![cfg("Google", "g", "https://google.com/?q={query}")];
         let p = WebSearchProvider { configs: &configs };
-        let results = p.search("g rust async");
+        let results = p.search("g rust async").await;
         assert_eq!(results.len(), 1);
         let r = &results[0];
         assert_eq!(r.id, "web:g");
@@ -100,14 +101,14 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn malformed_url_template_is_silently_skipped() {
+    #[tokio::test]
+    async fn malformed_url_template_is_silently_skipped() {
         // build_web_search_url rejects non-http(s) schemes — the prior
         // path (and this provider) treats that as "no result", not as
         // an error to surface.
         let configs = vec![cfg("Bad", "b", "javascript:alert({query})")];
         let p = WebSearchProvider { configs: &configs };
-        assert!(p.search("b foo").is_empty());
+        assert!(p.search("b foo").await.is_empty());
     }
 
     #[test]

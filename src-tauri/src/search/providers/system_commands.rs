@@ -31,12 +31,13 @@ pub struct SystemCommandsProvider {
     pub sub: SubQuery,
 }
 
+#[async_trait::async_trait]
 impl ResultProvider for SystemCommandsProvider {
     fn name(&self) -> &'static str {
         "system_commands"
     }
 
-    fn search(&self, _query: &str) -> Vec<SearchResult> {
+    async fn search(&self, _query: &str) -> Vec<SearchResult> {
         let filter = match &self.sub {
             SubQuery::Listing => None,
             SubQuery::Search(q) if q.is_empty() => None,
@@ -73,12 +74,12 @@ impl ResultProvider for SystemCommandsProvider {
 mod tests {
     use super::*;
 
-    #[test]
-    fn listing_returns_every_registered_command() {
+    #[tokio::test]
+    async fn listing_returns_every_registered_command() {
         let p = SystemCommandsProvider {
             sub: SubQuery::Listing,
         };
-        let results = p.search("");
+        let results = p.search("").await;
         // Every registered command surfaces, no filter applied.
         // The exact count varies as commands are added/removed; we
         // only assert non-empty + every result has the expected
@@ -91,19 +92,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn empty_search_treated_as_listing() {
+    #[tokio::test]
+    async fn empty_search_treated_as_listing() {
         let p_listing = SystemCommandsProvider {
             sub: SubQuery::Listing,
         };
         let p_empty = SystemCommandsProvider {
             sub: SubQuery::Search(String::new()),
         };
-        assert_eq!(p_listing.search("").len(), p_empty.search("").len());
+        assert_eq!(
+            p_listing.search("").await.len(),
+            p_empty.search("").await.len()
+        );
     }
 
-    #[test]
-    fn substring_filter_matches_alias_case_insensitively() {
+    #[tokio::test]
+    async fn substring_filter_matches_alias_case_insensitively() {
         // "lock" should match the lock command's alias / name no
         // matter the case the user types. Test against a token
         // that's almost certainly in the registered commands.
@@ -113,20 +117,20 @@ mod tests {
         let p_upper = SystemCommandsProvider {
             sub: SubQuery::Search("LOCK".into()),
         };
-        let lower_results = p_lower.search("");
-        let upper_results = p_upper.search("");
+        let lower_results = p_lower.search("").await;
+        let upper_results = p_upper.search("").await;
         // Same matches regardless of case.
         assert_eq!(lower_results.len(), upper_results.len());
         // Lock command is in the registered set.
         assert!(!lower_results.is_empty(), "expected at least one lock-related command");
     }
 
-    #[test]
-    fn nonexistent_token_returns_empty() {
+    #[tokio::test]
+    async fn nonexistent_token_returns_empty() {
         let p = SystemCommandsProvider {
             sub: SubQuery::Search("zzzz-not-a-command-token".into()),
         };
-        assert!(p.search("").is_empty());
+        assert!(p.search("").await.is_empty());
     }
 
     #[test]
