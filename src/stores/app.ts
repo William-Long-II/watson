@@ -9,22 +9,29 @@ import type {
   Notification,
 } from '../types';
 
+/**
+ * Mutually-exclusive secondary panels rendered below the search bar
+ * (above `<ResultsList />`). Exactly one panel — or none, in which
+ * case `<ResultsList />` shows — is active at a time. `<PanelHost>`
+ * does the rendering; setters here mutate `currentPanel` directly so
+ * we never carry stale "visible" booleans across opens.
+ */
+export type PanelId = 'settings' | 'scratchpad' | 'noteEditor' | 'notifications';
+
 interface AppState {
   query: string;
   results: SearchResult[];
   selectedIndex: number;
   settings: Settings | null;
   isLoading: boolean;
-  showSettings: boolean;
+  /** Active secondary panel, or `null` when results are showing. */
+  currentPanel: PanelId | null;
   scratchpad: string;
-  scratchpadVisible: boolean;
   currentNote: Note | null;
-  noteEditorVisible: boolean;
   startupWarnings: StartupWarning[];
   reservedPrefixes: string[];
   notifications: Notification[];
   notificationsUnread: number;
-  notificationsOpen: boolean;
   /** WAT-404: when true, the per-result Cmd+K secondary-action menu is open
       for `results[selectedIndex]`. */
   actionMenuOpen: boolean;
@@ -91,16 +98,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedIndex: 0,
   settings: null,
   isLoading: false,
-  showSettings: false,
+  currentPanel: null,
   scratchpad: '',
-  scratchpadVisible: false,
   currentNote: null,
-  noteEditorVisible: false,
   startupWarnings: [],
   reservedPrefixes: [],
   notifications: [],
   notificationsUnread: 0,
-  notificationsOpen: false,
   actionMenuOpen: false,
 
   setQuery: async (query: string) => {
@@ -245,20 +249,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setShowSettings: (show: boolean) => {
-    set({ showSettings: show });
+    set({ currentPanel: show ? 'settings' : null });
     get().resizeWindow();
   },
 
   resizeWindow: async () => {
-    const { results, showSettings, scratchpadVisible, noteEditorVisible, query } = get();
+    const { results, currentPanel, query } = get();
 
     let height: number;
 
-    if (noteEditorVisible) {
+    if (currentPanel === 'noteEditor') {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + 350 + PADDING; // Note editor height
-    } else if (scratchpadVisible) {
+    } else if (currentPanel === 'scratchpad') {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + 280 + PADDING; // Scratchpad height
-    } else if (showSettings) {
+    } else if (currentPanel === 'settings') {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + SETTINGS_HEIGHT + PADDING;
     } else if (results.length > 0) {
       const resultsHeight = Math.min(results.length * RESULT_HEIGHT, MAX_RESULTS_HEIGHT);
@@ -308,7 +312,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setShowScratchpad: (show: boolean) => {
-    set({ scratchpadVisible: show, showSettings: false });
+    set({ currentPanel: show ? 'scratchpad' : null });
     get().resizeWindow();
   },
 
@@ -336,7 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteNote: async (id: string) => {
     try {
       await invoke('delete_note', { id });
-      set({ currentNote: null, noteEditorVisible: false });
+      set({ currentNote: null, currentPanel: null });
       get().resizeWindow();
     } catch (e) {
       console.error('Failed to delete note:', e);
@@ -347,7 +351,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const note = await invoke<Note | null>('get_note', { id: noteId });
       if (note) {
-        set({ currentNote: note, noteEditorVisible: true, showSettings: false, scratchpadVisible: false });
+        set({ currentNote: note, currentPanel: 'noteEditor' });
         get().resizeWindow();
       }
     } catch (e) {
@@ -356,17 +360,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   closeNoteEditor: () => {
-    set({ noteEditorVisible: false, currentNote: null });
+    set({ currentPanel: null, currentNote: null });
     get().resizeWindow();
   },
 
   openNewNote: () => {
-    set({
-      currentNote: null,
-      noteEditorVisible: true,
-      showSettings: false,
-      scratchpadVisible: false
-    });
+    set({ currentNote: null, currentPanel: 'noteEditor' });
     get().resizeWindow();
   },
 
@@ -465,7 +464,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setNotificationsOpen: (open: boolean) => {
-    set({ notificationsOpen: open });
+    set({ currentPanel: open ? 'notifications' : null });
     if (open) {
       // Re-fetch when the drawer opens so late-arriving notifications
       // (e.g. an update check that just failed) appear without a

@@ -15,16 +15,13 @@ function resetStore() {
     selectedIndex: 0,
     settings: null,
     isLoading: false,
-    showSettings: false,
+    currentPanel: 'notifications', // test drawer in its open state
     scratchpad: '',
-    scratchpadVisible: false,
     currentNote: null,
-    noteEditorVisible: false,
     startupWarnings: [],
     reservedPrefixes: [],
     notifications: [],
     notificationsUnread: 0,
-    notificationsOpen: true, // test drawer in its open state
   });
 }
 
@@ -46,11 +43,10 @@ describe('NotificationsDrawer — WAT-406', () => {
     mockInvoke.mockImplementation(async () => undefined);
   });
 
-  it('renders nothing when notificationsOpen is false', () => {
-    useAppStore.setState({ notificationsOpen: false });
-    const { container } = render(<NotificationsDrawer />);
-    expect(container.firstChild).toBeNull();
-  });
+  // Gating moved to <PanelHost> — NotificationsDrawer is only rendered
+  // when currentPanel === 'notifications'. The host-level routing is
+  // covered in PanelHost.test.tsx, so this file no longer asserts the
+  // self-gating behavior the drawer used to do internally.
 
   it('shows an empty-state message when there are no notifications', () => {
     render(<NotificationsDrawer />);
@@ -122,13 +118,13 @@ describe('NotificationsDrawer — WAT-406', () => {
     expect(screen.getByText(/dismissed/i)).toBeInTheDocument();
   });
 
-  it('close button sets notificationsOpen=false', async () => {
+  it('close button clears the active panel', async () => {
     useAppStore.setState({ notifications: [notif()] });
     const user = userEvent.setup();
     render(<NotificationsDrawer />);
 
     await user.click(screen.getByRole('button', { name: /close notifications/i }));
 
-    expect(useAppStore.getState().notificationsOpen).toBe(false);
+    expect(useAppStore.getState().currentPanel).toBeNull();
   });
 });

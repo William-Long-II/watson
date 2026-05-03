@@ -5,13 +5,10 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { SearchBar } from './components/SearchBar';
-import { ResultsList } from './components/ResultsList';
-import { Scratchpad } from './components/Scratchpad';
-import { NoteEditor } from './components/NoteEditor';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { SnippetsSettings } from './components/SnippetsSettings';
 import { ConfirmModal } from './components/ConfirmModal';
-import { NotificationsDrawer } from './components/NotificationsDrawer';
+import { PanelHost } from './components/PanelHost';
 import { useAppStore } from './stores/app';
 import type { WebSearch } from './types';
 
@@ -585,18 +582,17 @@ function App() {
     loadSettings,
     reindexApps,
     settings,
-    showSettings,
+    currentPanel,
     setShowSettings,
     resizeWindow,
-    scratchpadVisible,
-    noteEditorVisible,
     loadReservedPrefixes,
     setQuery,
     loadNotifications,
     notificationsUnread,
-    notificationsOpen,
     setNotificationsOpen,
   } = useAppStore();
+  const showSettings = currentPanel === 'settings';
+  const notificationsOpen = currentPanel === 'notifications';
 
   useEffect(() => {
     loadSettings();
@@ -693,17 +689,11 @@ function App() {
 
       <SearchBar />
 
-      {notificationsOpen ? (
-        <NotificationsDrawer />
-      ) : noteEditorVisible ? (
-        <NoteEditor />
-      ) : scratchpadVisible ? (
-        <Scratchpad />
-      ) : showSettings ? (
-        <SettingsPanel onClose={() => setShowSettings(false)} />
-      ) : (
-        <ResultsList />
-      )}
+      <PanelHost
+        panel={currentPanel}
+        settingsPanel={<SettingsPanel onClose={() => setShowSettings(false)} />}
+      />
+
     </div>
   );
 }

@@ -14,11 +14,9 @@ function resetStore() {
     selectedIndex: 0,
     settings: null,
     isLoading: false,
-    showSettings: false,
+    currentPanel: null,
     scratchpad: '',
-    scratchpadVisible: false,
     currentNote: null,
-    noteEditorVisible: false,
     startupWarnings: [],
     reservedPrefixes: [],
   });
