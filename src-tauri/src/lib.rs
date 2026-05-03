@@ -29,7 +29,9 @@ use search::dispatch::{classify_prefix_route, Route, SubQuery};
 use search::provider::ResultProvider;
 use search::providers::apps::AppsProvider;
 use search::providers::browser_tabs::BrowserTabsProvider;
+use search::providers::calculator::CalculatorProvider;
 use search::providers::snippets::SnippetsProvider;
+use search::providers::system_commands::SystemCommandsProvider;
 use search::providers::web_search::WebSearchProvider;
 use search::providers::windows::WindowsProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
@@ -213,69 +215,10 @@ async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<
     out
 }
 
-/// Wrap a successful calculation into the single `SearchResult` the UI
-/// renders. WAT-203 short-circuits the pipeline on detection, so this is
-/// the only result returned for a calculator query.
-fn calculation_result(calc: calculator::Calculation) -> SearchResult {
-    // The id is derived from the expression so identical repeats reuse
-    // the same result row (stable for React keying and de-dup).
-    let id = format!("calc:{}", calc.expression);
-    // Copy only the plain result value — not the "rates from ..." suffix
-    // on currency — so pasting somewhere else gives a clean number.
-    let copy_value = calc
-        .result
-        .split_once(" (")
-        .map(|(head, _)| head.to_string())
-        .unwrap_or_else(|| calc.result.clone());
-    SearchResult {
-        id,
-        name: format!("{} = {}", calc.expression, calc.result),
-        description: "Press Enter to copy".to_string(),
-        icon: Some("calculator".to_string()),
-        result_type: ResultType::Calculation,
-        score: 100000, // Above everything else; we've already short-circuited.
-        frecency_score: 0.0,
-        preview: None,
-        pinned: false,
-        action: SearchAction::CopyClipboard { content: copy_value },
-    }
-}
-
-/// WAT-306: dispatch for the `>` prefix. `>` alone returns every command
-/// in its registered order; `>foo` (or `> foo`) filters aliases by
-/// case-insensitive substring match. Runs exclusively — no apps, web
-/// searches, or other result types mix in.
-fn system_commands_route_results(sub: SubQuery) -> Vec<SearchResult> {
-    let filter = match sub {
-        SubQuery::Listing => None,
-        SubQuery::Search(q) if q.is_empty() => None,
-        SubQuery::Search(q) => Some(q.to_lowercase()),
-    };
-
-    get_system_commands()
-        .into_iter()
-        .filter(|cmd| match &filter {
-            None => true,
-            Some(needle) => cmd
-                .aliases
-                .iter()
-                .any(|alias| alias.to_lowercase().contains(needle))
-                || cmd.name.to_lowercase().contains(needle.as_str()),
-        })
-        .map(|cmd| SearchResult {
-            id: cmd.id.clone(),
-            name: cmd.name.clone(),
-            description: cmd.description.clone(),
-            icon: Some("system".to_string()),
-            result_type: ResultType::SystemCommand,
-            score: 5000,
-            frecency_score: 0.0,
-            preview: None,
-            pinned: false,
-            action: SearchAction::RunCommand { command: cmd.id },
-        })
-        .collect()
-}
+// Phase 1A: `calculation_result` and `system_commands_route_results`
+// have moved to `search::providers::calculator` and
+// `search::providers::system_commands` respectively. The dispatcher
+// in `search()` instantiates each provider per call.
 
 /// WAT-304: build the empty-query default view — up to 5 recently-launched
 /// apps + up to 5 recently-opened files, interleaved by timestamp so the
@@ -382,8 +325,13 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     // query looks like math or a unit/currency conversion. The detector
     // is conservative — ordinary search queries ("apple", "chrome",
     // "iphone 15") fall through to the normal pipeline.
-    if let Some(calc) = calculator::detect(&query) {
-        return Ok(vec![calculation_result(calc)]);
+    // WAT-203 short-circuit: if the query parses as math / unit /
+    // currency, skip the rest of the pipeline and return only the
+    // calculator's row. The provider returns an empty Vec for
+    // non-math input, so checking for non-empty is the discriminator.
+    let calc_results = CalculatorProvider.search(&query);
+    if !calc_results.is_empty() {
+        return Ok(calc_results);
     }
 
     match classify_prefix_route(&query) {
@@ -391,7 +339,7 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         Route::Notes(sub) => return Ok(notes_route_results(&state, sub).await),
         Route::Files(sub) => return Ok(files_route_results(&state, sub).await),
         Route::Clipboard(sub) => return Ok(clipboard_route_results(&state, sub)),
-        Route::SystemCommands(sub) => return Ok(system_commands_route_results(sub)),
+        Route::SystemCommands(sub) => return Ok(SystemCommandsProvider { sub }.search(&query)),
         Route::Passthrough => {}
     }
 
