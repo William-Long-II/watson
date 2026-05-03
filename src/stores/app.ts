@@ -219,9 +219,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selected.action.type === 'focus_window') {
         await invoke('execute_action', { action: selected.action });
         set({ query: '', results: [], selectedIndex: 0 });
+        await get().resizeWindow();
         await hideWindow();
       } else {
         set({ query: '', results: [], selectedIndex: 0 });
+        // Resize BEFORE hiding so the next show comes back at the
+        // empty-state height instead of the stale results-mode height
+        // (otherwise reopening via Alt+Space shows Quick Tips with a
+        // huge dark band beneath, sized to the prior result list).
+        await get().resizeWindow();
         await hideWindow();
         await invoke('execute_action', { action: selected.action });
       }
