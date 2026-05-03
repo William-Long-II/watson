@@ -22,3 +22,5 @@
 //! Ok in the dispatcher and don't need a handler module.
 
 pub mod launch_app;
+pub mod open_file;
+pub mod open_url;
