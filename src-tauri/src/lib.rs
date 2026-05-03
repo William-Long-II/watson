@@ -367,9 +367,9 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::PasteSnippet { expansion } => {
             actions::handlers::paste_snippet::handle(expansion, &state.clipboard)
         }
-        SearchAction::FocusWindow { hwnd } => actions::windows::focus_window(hwnd),
+        SearchAction::FocusWindow { hwnd } => actions::handlers::focus_window::handle(hwnd),
         SearchAction::FocusBrowserTab { hwnd, index } => {
-            actions::browser_tabs::focus_browser_tab(hwnd, index)
+            actions::handlers::focus_browser_tab::handle(hwnd, index)
         }
         // Frontend handles `CreateNewNote` directly (opens the editor
         // panel). If it ever reaches the backend, that's a frontend
@@ -380,19 +380,13 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         // results once this returns so the newly-indexed files
         // surface immediately.
         SearchAction::ReindexFiles => {
-            let settings = state.settings.read().unwrap();
-            if !settings.file_search.enabled {
-                return Err("File search is disabled in Settings".to_string());
-            }
-            state.file_search.reset_cancel();
-            let indexer = files::indexer::FileIndexer::new(
+            // Snapshot the file_search settings so we don't hold the
+            // RwLockReadGuard across the indexer call.
+            let file_search_settings = state.settings.read().unwrap().file_search.clone();
+            actions::handlers::reindex_files::handle(
                 Arc::clone(&state.file_search),
-                settings.file_search.indexed_paths.clone(),
-                settings.file_search.excluded_patterns.clone(),
-                settings.file_search.max_depth,
-            );
-            indexer.index_all();
-            Ok(())
+                file_search_settings,
+            )
         }
     }
 }
