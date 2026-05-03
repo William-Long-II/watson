@@ -39,7 +39,7 @@ mod tests {
     /// `local_reserved_prefixes_fixture_matches_canonical` below, so any
     /// drift between the two is caught.
     const RESERVED_PREFIXES: &[&str] =
-        &["n", "notes", "f", "files", "cb", "clip", "s", ">"];
+        &["n", "notes", "f", "files", "cb", "clip", "cap", "captures", "s", ">"];
 
     #[test]
     fn default_settings_match_documented_contract() {

@@ -1,6 +1,7 @@
 mod actions;
 mod apps;
 mod calculator;
+mod capture;
 mod clipboard;
 mod config;
 mod db;
@@ -30,6 +31,7 @@ use search::provider::ResultProvider;
 use search::providers::apps::AppsProvider;
 use search::providers::browser_tabs::BrowserTabsProvider;
 use search::providers::calculator::CalculatorProvider;
+use search::providers::captures::CapturesProvider;
 use search::providers::file_search::FileSearchProvider;
 use search::providers::notes::NotesProvider;
 use search::providers::snippets::SnippetsProvider;
@@ -244,6 +246,16 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         Route::Clipboard(sub) => return Ok(clipboard_route_results(&state, sub)),
         Route::SystemCommands(sub) => {
             return Ok(SystemCommandsProvider { sub }.search(&query).await)
+        }
+        Route::Captures(sub) => {
+            return Ok(CapturesProvider {
+                notes: &state.notes,
+                snippets: &state.snippets,
+                clipboard: &state.clipboard,
+                sub,
+            }
+            .search(&query)
+            .await)
         }
         Route::Passthrough => {}
     }

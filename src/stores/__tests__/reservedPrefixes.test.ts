@@ -31,7 +31,7 @@ describe('store.loadReservedPrefixes (WAT-205)', () => {
 
   it('populates reservedPrefixes from the backend get_reserved_prefixes command', async () => {
     mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'get_reserved_prefixes') return ['n', 'notes', 'f', 'files', 'cb', 'clip', 's', '>'];
+      if (cmd === 'get_reserved_prefixes') return ['n', 'notes', 'f', 'files', 'cb', 'clip', 'cap', 'captures', 's', '>'];
       return undefined;
     });
 
@@ -41,10 +41,11 @@ describe('store.loadReservedPrefixes (WAT-205)', () => {
     expect(state.reservedPrefixes).toContain('n');
     expect(state.reservedPrefixes).toContain('>');
     expect(state.reservedPrefixes).toContain('s');
+    expect(state.reservedPrefixes).toContain('cap');
     // Length check is a sanity guard — if the Rust side adds a prefix, the
     // Vitest mock here needs updating too, and this assertion will nudge
     // the person making the change.
-    expect(state.reservedPrefixes).toHaveLength(8);
+    expect(state.reservedPrefixes).toHaveLength(10);
   });
 
   it('leaves reservedPrefixes untouched when the backend call fails', async () => {
