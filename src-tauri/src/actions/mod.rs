@@ -1,4 +1,5 @@
 pub mod browser_tabs;
+pub mod handlers;
 pub mod system;
 pub mod window;
 pub mod windows;

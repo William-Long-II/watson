@@ -350,24 +350,7 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), String> {
     match action {
         SearchAction::LaunchApp { path } => {
-            // WAT-201: record the launch BEFORE invoking the OS; if the
-            // launch itself fails, the stats still reflect intent (the
-            // user chose this app). Also patch the in-memory cache so
-            // the next search reflects the updated count without waiting
-            // for a reindex round-trip.
-            let _ = apps::record_launch(&state.db, &path);
-            let now = chrono::Utc::now().timestamp();
-            {
-                let mut cached = state.indexed_apps.write().unwrap();
-                for app in cached.iter_mut() {
-                    if app.path == path {
-                        app.launch_count = app.launch_count.saturating_add(1);
-                        app.last_launched = Some(now);
-                        break;
-                    }
-                }
-            }
-            actions::launch_app(&path)
+            actions::handlers::launch_app::handle(path, &state.db, &state.indexed_apps)
         }
         SearchAction::OpenUrl { url } => actions::open_url(&url),
         SearchAction::RunCommand { command } => execute_command(&command),
