@@ -20,11 +20,9 @@ function resetStore() {
     selectedIndex: 0,
     settings: null,
     isLoading: false,
-    showSettings: false,
+    currentPanel: null,
     scratchpad: '',
-    scratchpadVisible: false,
     currentNote: null,
-    noteEditorVisible: false,
   });
 }
 
@@ -185,7 +183,7 @@ describe('SearchBar keyboard contract', () => {
 
     await user.keyboard('`');
 
-    expect(useAppStore.getState().scratchpadVisible).toBe(true);
+    expect(useAppStore.getState().currentPanel).toBe('scratchpad');
     expect(useAppStore.getState().query).toBe('');
   });
 
@@ -196,7 +194,7 @@ describe('SearchBar keyboard contract', () => {
     await user.keyboard('s');
 
     // 's' is now a normal search character; scratchpad does NOT open.
-    expect(useAppStore.getState().scratchpadVisible).toBe(false);
+    expect(useAppStore.getState().currentPanel).not.toBe('scratchpad');
     expect(useAppStore.getState().query).toBe('s');
   });
 
@@ -209,7 +207,7 @@ describe('SearchBar keyboard contract', () => {
     // After the space, the store's setQuery interceptor fires the
     // shortcut and clears the input — same end state as the old
     // single-key trigger, just discriminated.
-    expect(useAppStore.getState().scratchpadVisible).toBe(true);
+    expect(useAppStore.getState().currentPanel).toBe('scratchpad');
     expect(useAppStore.getState().query).toBe('');
   });
 
@@ -220,7 +218,7 @@ describe('SearchBar keyboard contract', () => {
     await user.keyboard('n');
 
     // 'n' no longer opens the new note editor — flows into the query.
-    expect(useAppStore.getState().noteEditorVisible).toBe(false);
+    expect(useAppStore.getState().currentPanel).not.toBe('noteEditor');
     expect(useAppStore.getState().query).toBe('n');
   });
 
@@ -247,6 +245,6 @@ describe('SearchBar keyboard contract', () => {
     await user.keyboard('s');
 
     // The 's' reaches the input and triggers a search; scratchpad must not open.
-    expect(useAppStore.getState().scratchpadVisible).toBe(false);
+    expect(useAppStore.getState().currentPanel).not.toBe('scratchpad');
   });
 });

@@ -4,16 +4,14 @@ import type { Notification, NotificationSeverity } from '../types';
 /**
  * WAT-406: drawer panel listing non-fatal notifications.
  *
- * Rendered below the search bar when `notificationsOpen` is true (the
- * store toggle the header bell icon drives). Complementary to the
- * WAT-105 startup-warning banner — startup warnings push HERE too so
+ * Rendered by `<PanelHost>` when `currentPanel === 'notifications'`
+ * (toggled by the header bell icon). Complementary to the WAT-105
+ * startup-warning banner — startup warnings push HERE too so
  * dismissing the loud banner doesn't erase the record.
  */
 export function NotificationsDrawer() {
-  const { notifications, notificationsOpen, dismissNotification, dismissAllNotifications, setNotificationsOpen } =
+  const { notifications, dismissNotification, dismissAllNotifications, setNotificationsOpen } =
     useAppStore();
-
-  if (!notificationsOpen) return null;
 
   const active = notifications.filter((n) => !n.dismissed);
   const dismissed = notifications.filter((n) => n.dismissed);
