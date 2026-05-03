@@ -79,9 +79,14 @@ const SETTINGS_HEIGHT = 350;
 // Height for the Quick Tips empty state. Includes p-4 padding (32),
 // the "Quick Tips" header (~16), three tip lines at text-xs with
 // `space-y-0.5` between them (~52), and the `space-y-1` gap between
-// header and tips block (~4). Earlier 110 undercounted by ~30px and
-// the bottom two tip lines were getting clipped at the window edge.
-const EMPTY_STATE_HEIGHT = 150;
+// header and tips block (~4). Total content ≈ 104px; 115 leaves a
+// small buffer for line-height variance across platforms without
+// the dark band beneath that 150 produced. The earlier 110→150
+// bump was diagnosing the missing resizeWindow() on app launch
+// (now fixed in executeSelected) — the empty-state content itself
+// was always ~104px; the window was just stuck at the prior
+// results-mode height when reopened.
+const EMPTY_STATE_HEIGHT = 115;
 const PADDING = 28; // Extra padding for rounded corners
 // On empty queries with recents present, ResultsList renders a small
 // "RECENTS" label inside the same scrollable region as the rows. The
