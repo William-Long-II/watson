@@ -22,8 +22,11 @@
 //! Ok in the dispatcher and don't need a handler module.
 
 pub mod copy_clipboard;
+pub mod focus_browser_tab;
+pub mod focus_window;
 pub mod launch_app;
 pub mod open_file;
 pub mod open_url;
 pub mod paste_snippet;
+pub mod reindex_files;
 pub mod run_command;
