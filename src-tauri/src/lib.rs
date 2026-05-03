@@ -265,37 +265,51 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     };
     let apps: Vec<AppEntry> = state.indexed_apps.read().unwrap().clone();
 
-    let mut items: Vec<SearchResult> = Vec::new();
+    // Enumerate open windows once and let both window-shaped providers
+    // share the slice. Cross-platform FFI (Win32 / AX / X11) runs once
+    // per query, not per provider.
+    let open_windows = actions::windows::get_open_windows().unwrap_or_default();
 
-    // Phase 1A: web-search keyword matching now flows through a
-    // `ResultProvider` impl. Same external behavior — classification +
-    // URL construction reuse the existing helpers — but the
-    // dispatcher no longer hand-rolls the SearchResult struct.
-    items.extend(
-        WebSearchProvider {
+    // Passthrough provider registry. Each provider borrows from local
+    // snapshot state, so the registry is built per-call (not static).
+    // `Box<dyn ResultProvider + Send + Sync>` lets the iteration be
+    // uniform across the different concrete types. Adding a new
+    // provider that fits the passthrough pattern means appending one
+    // line here — no dispatcher edits scattered through the function.
+    //
+    // Order is preserved from the prior hand-coded sequence (web →
+    // snippets → tabs → windows). Score-driven sort downstream means
+    // order in `items` doesn't change ranking, but it keeps the
+    // diff small and reviewable.
+    let passthrough_providers: Vec<Box<dyn ResultProvider + Send + Sync>> = vec![
+        Box::new(WebSearchProvider {
             configs: &web_searches,
-        }
-        .search(&query)
-        .await,
-    );
-
-    // Phase 1A: snippets via `ResultProvider`. WAT-301 — runs as a
-    // regular search-pipeline contributor alongside apps and web,
-    // no special prefix. Users who want scoped lookup can use a
-    // `;`-prefixed trigger by convention.
-    items.extend(
-        SnippetsProvider {
+        }),
+        Box::new(SnippetsProvider {
             manager: &state.snippets,
-        }
-        .search(&query)
-        .await,
-    );
+        }),
+        Box::new(BrowserTabsProvider {
+            windows: &open_windows,
+        }),
+        Box::new(WindowsProvider {
+            windows: &open_windows,
+        }),
+    ];
 
-    // Phase 1A: apps via `ResultProvider`. The dispatcher gates the
-    // call on `!query.contains(' ') || items.is_empty()` (single-word
-    // query, OR fall back when nothing else matched) — that perf trim
-    // stays here because it short-circuits the entire app emission,
-    // not just per-app filtering.
+    let mut items: Vec<SearchResult> = Vec::new();
+    for provider in &passthrough_providers {
+        items.extend(provider.search(&query).await);
+    }
+
+    // Apps stays gated separately. The `!query.contains(' ') ||
+    // items.is_empty()` perf trim short-circuits the *entire* app
+    // emission for multi-word queries (typing "two words" doesn't
+    // typically want to launch an app), and we want that to fire
+    // BEFORE we'd push hundreds of app rows into items only to drop
+    // most via downstream fuzzy filtering. Conditional-provider
+    // gating on a uniform registry would need a richer trait shape;
+    // keeping apps as a one-off here defers that question without
+    // adding architectural debt.
     if !query.contains(' ') || items.is_empty() {
         items.extend(
             AppsProvider {
@@ -307,27 +321,6 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
             .await,
         );
     }
-
-    // Phase 1A: open windows + browser tabs via two `ResultProvider`
-    // impls that share a single `get_open_windows()` enumeration —
-    // the cross-platform FFI work runs once per query, not twice.
-    // Errors are silenced here (same policy as before): an empty
-    // window list yields zero results from both providers.
-    let open_windows = actions::windows::get_open_windows().unwrap_or_default();
-    items.extend(
-        BrowserTabsProvider {
-            windows: &open_windows,
-        }
-        .search(&query)
-        .await,
-    );
-    items.extend(
-        WindowsProvider {
-            windows: &open_windows,
-        }
-        .search(&query)
-        .await,
-    );
 
     // Gemini Improvement #2: Add files with frecency bonus.
     if let Ok(files) = state.file_search.get_recent(50) {
