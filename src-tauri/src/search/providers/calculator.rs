@@ -23,12 +23,13 @@ const CALCULATOR_SCORE: i64 = 100_000;
 
 pub struct CalculatorProvider;
 
+#[async_trait::async_trait]
 impl ResultProvider for CalculatorProvider {
     fn name(&self) -> &'static str {
         "calculator"
     }
 
-    fn search(&self, query: &str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         let Some(calc) = calculator::detect(query) else {
             return Vec::new();
         };
@@ -68,26 +69,26 @@ fn build_result(calc: calculator::Calculation) -> SearchResult {
 mod tests {
     use super::*;
 
-    #[test]
-    fn non_math_query_returns_empty() {
+    #[tokio::test]
+    async fn non_math_query_returns_empty() {
         let p = CalculatorProvider;
-        assert!(p.search("hello world").is_empty());
-        assert!(p.search("apple").is_empty());
-        assert!(p.search("").is_empty());
+        assert!(p.search("hello world").await.is_empty());
+        assert!(p.search("apple").await.is_empty());
+        assert!(p.search("").await.is_empty());
     }
 
-    #[test]
-    fn arithmetic_returns_one_result() {
+    #[tokio::test]
+    async fn arithmetic_returns_one_result() {
         let p = CalculatorProvider;
-        let results = p.search("2 + 2");
+        let results = p.search("2 + 2").await;
         assert_eq!(results.len(), 1);
         let r = &results[0];
         assert!(r.name.contains("4"));
         assert_eq!(r.id, "calc:2 + 2");
     }
 
-    #[test]
-    fn copy_action_strips_currency_rate_suffix() {
+    #[tokio::test]
+    async fn copy_action_strips_currency_rate_suffix() {
         // The expected display includes "5 USD = 4.50 EUR (rates
         // from ...)" — the copyable value should be "4.50 EUR" only.
         // We can't easily mock the currency rate fetcher here, so
@@ -97,7 +98,7 @@ mod tests {
         // Just smoke-test the action shape on a deterministic
         // arithmetic case.
         let p = CalculatorProvider;
-        let results = p.search("10 * 3");
+        let results = p.search("10 * 3").await;
         assert_eq!(results.len(), 1);
         match &results[0].action {
             SearchAction::CopyClipboard { content } => {

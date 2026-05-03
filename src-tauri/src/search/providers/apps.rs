@@ -33,12 +33,13 @@ pub struct AppsProvider<'a> {
     pub now: i64,
 }
 
+#[async_trait::async_trait]
 impl<'a> ResultProvider for AppsProvider<'a> {
     fn name(&self) -> &'static str {
         "apps"
     }
 
-    fn search(&self, _query: &str) -> Vec<SearchResult> {
+    async fn search(&self, _query: &str) -> Vec<SearchResult> {
         // The query is intentionally ignored here. Fuzzy ranking lives
         // in `SearchEngine::search` downstream and handles all result
         // kinds uniformly; if we filtered here we'd skip the engine's
@@ -88,18 +89,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn empty_apps_returns_empty() {
+    #[tokio::test]
+    async fn empty_apps_returns_empty() {
         let p = AppsProvider {
             apps: &[],
             use_frequency_ranking: true,
             now: 0,
         };
-        assert!(p.search("anything").is_empty());
+        assert!(p.search("anything").await.is_empty());
     }
 
-    #[test]
-    fn maps_each_app_to_one_search_result() {
+    #[tokio::test]
+    async fn maps_each_app_to_one_search_result() {
         let apps = vec![
             app("a:1", "Brave", 0, None),
             app("a:2", "Chrome", 0, None),
@@ -110,26 +111,26 @@ mod tests {
             use_frequency_ranking: false,
             now: 0,
         };
-        let results = p.search("");
+        let results = p.search("").await;
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].name, "Brave");
         assert_eq!(results[2].name, "Firefox");
     }
 
-    #[test]
-    fn frequency_off_zeroes_the_bonus() {
+    #[tokio::test]
+    async fn frequency_off_zeroes_the_bonus() {
         let apps = vec![app("a:1", "Brave", 999, Some(0))];
         let p = AppsProvider {
             apps: &apps,
             use_frequency_ranking: false,
             now: 1_700_000_000,
         };
-        let r = &p.search("")[0];
-        assert_eq!(r.frecency_score, 0.0);
+        let results = p.search("").await;
+        assert_eq!(results[0].frecency_score, 0.0);
     }
 
-    #[test]
-    fn frequency_on_emits_nonzero_bonus_for_used_apps() {
+    #[tokio::test]
+    async fn frequency_on_emits_nonzero_bonus_for_used_apps() {
         let apps = vec![
             app("a:never", "Never used", 0, None),
             app("a:hot", "Frequently used", 50, Some(1_699_990_000)),
@@ -139,23 +140,23 @@ mod tests {
             use_frequency_ranking: true,
             now: 1_700_000_000,
         };
-        let results = p.search("");
+        let results = p.search("").await;
         // Unused app gets 0; hot app gets a positive score.
         assert_eq!(results[0].frecency_score, 0.0);
         assert!(results[1].frecency_score > 0.0);
     }
 
-    #[test]
-    fn search_action_is_launch_app_with_path() {
+    #[tokio::test]
+    async fn search_action_is_launch_app_with_path() {
         let apps = vec![app("a:1", "Brave", 0, None)];
         let p = AppsProvider {
             apps: &apps,
             use_frequency_ranking: false,
             now: 0,
         };
-        let r = &p.search("")[0];
+        let results = p.search("").await;
         assert!(matches!(
-            r.action,
+            results[0].action,
             SearchAction::LaunchApp { ref path } if path.contains("Brave")
         ));
     }

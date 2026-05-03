@@ -36,12 +36,13 @@ pub struct SnippetsProvider<'a> {
     pub manager: &'a SnippetsManager,
 }
 
+#[async_trait::async_trait]
 impl<'a> ResultProvider for SnippetsProvider<'a> {
     fn name(&self) -> &'static str {
         "snippets"
     }
 
-    fn search(&self, query: &str) -> Vec<SearchResult> {
+    async fn search(&self, query: &str) -> Vec<SearchResult> {
         // SnippetsManager::search returns Result; treat errors as
         // "no results" — same policy the prior hand-coded path used.
         // A real DB error already gets logged via the manager's own

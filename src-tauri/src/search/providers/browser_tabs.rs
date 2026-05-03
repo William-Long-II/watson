@@ -31,12 +31,13 @@ pub struct BrowserTabsProvider<'a> {
     pub windows: &'a [WindowEntry],
 }
 
+#[async_trait::async_trait]
 impl<'a> ResultProvider for BrowserTabsProvider<'a> {
     fn name(&self) -> &'static str {
         "browser_tabs"
     }
 
-    fn search(&self, _query: &str) -> Vec<SearchResult> {
+    async fn search(&self, _query: &str) -> Vec<SearchResult> {
         let mut results = Vec::new();
         for window in self.windows {
             // Skip non-browser windows up front — the FFI call to
@@ -77,14 +78,14 @@ impl<'a> ResultProvider for BrowserTabsProvider<'a> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn empty_windows_returns_empty() {
+    #[tokio::test]
+    async fn empty_windows_returns_empty() {
         let p = BrowserTabsProvider { windows: &[] };
-        assert!(p.search("").is_empty());
+        assert!(p.search("").await.is_empty());
     }
 
-    #[test]
-    fn non_browser_processes_skipped_without_ffi_call() {
+    #[tokio::test]
+    async fn non_browser_processes_skipped_without_ffi_call() {
         // The provider should short-circuit before reaching
         // `get_browser_tabs` for non-browser processes. We can't
         // observe the FFI call directly, but we can confirm an
@@ -97,7 +98,7 @@ mod tests {
             title: "Not a browser".into(),
         }];
         let p = BrowserTabsProvider { windows: &windows };
-        assert!(p.search("").is_empty());
+        assert!(p.search("").await.is_empty());
     }
 
     #[test]

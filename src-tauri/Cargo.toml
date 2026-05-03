@@ -34,6 +34,7 @@ dirs = "5.0"
 meval = "0.2"
 regex = "1"
 tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # UI Automation for browser tab enumeration. Only needed on Windows;

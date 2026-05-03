@@ -30,6 +30,8 @@ use search::provider::ResultProvider;
 use search::providers::apps::AppsProvider;
 use search::providers::browser_tabs::BrowserTabsProvider;
 use search::providers::calculator::CalculatorProvider;
+use search::providers::file_search::FileSearchProvider;
+use search::providers::notes::NotesProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::system_commands::SystemCommandsProvider;
 use search::providers::web_search::WebSearchProvider;
@@ -102,123 +104,10 @@ fn reindex_apps(state: State<AppState>) -> usize {
     count
 }
 
-/// Gemini Improvement #4: clean plain-text snippet of a note's content.
-/// Strips markdown headers and collapses newlines to provide a dense
-/// preview for the search results row.
-fn note_preview(content: &str) -> String {
-    let clean = content
-        .lines()
-        .filter(|line| !line.trim().starts_with('#'))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let clipped: String = clean.chars().take(100).collect();
-    if clean.chars().count() > 100 {
-        format!("{clipped}…")
-    } else {
-        clipped
-    }
-}
-
-async fn notes_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
-    let notes_res = match sub {
-        SubQuery::Listing => state.notes.get_recent(8).await,
-        SubQuery::Search(ref q) if q.is_empty() => state.notes.get_recent(8).await,
-        SubQuery::Search(q) => state.notes.search(&q).await,
-    };
-    let mut out: Vec<SearchResult> = notes_res
-        .map(|notes| {
-            notes
-                .into_iter()
-                .take(8)
-                .map(|note| SearchResult {
-                    id: note.id.clone(),
-                    name: note.title,
-                    description: format!("Note · {}", note.tags.join(", ")),
-                    icon: Some("note".to_string()),
-                    result_type: ResultType::Note,
-                    score: 10000,
-                    frecency_score: 0.0,
-                    preview: Some(note_preview(&note.content)),
-                    pinned: false,
-                    action: SearchAction::OpenNote { note_id: note.id },
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Always surface a "Create new note" entry in the notes route.
-    // This is the replacement for the bare-`n` keyboard shortcut that
-    // used to open the editor — without it, a user with zero notes
-    // who types `n` sees an empty list and can't tell that the route
-    // even fired.
-    out.push(SearchResult {
-        id: "note:__create__".to_string(),
-        name: "Create new note".to_string(),
-        description: "Open the editor with an empty note".to_string(),
-        icon: Some("note_new".to_string()),
-        result_type: ResultType::Note,
-        // Lower than recent notes (10000) so it sorts to the bottom
-        // when notes exist, but is the only result when they don't.
-        score: 1,
-        frecency_score: 0.0,
-        preview: None,
-        pinned: false,
-        action: SearchAction::CreateNewNote,
-    });
-    out
-}
-
-async fn files_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<SearchResult> {
-    let files = match sub {
-        SubQuery::Listing => state.file_search.get_recent(8),
-        SubQuery::Search(ref q) if q.is_empty() => state.file_search.get_recent(8),
-        SubQuery::Search(q) => state.file_search.search(&q, 8),
-    };
-    let mut out: Vec<SearchResult> = files
-        .map(|files| {
-            files
-                .into_iter()
-                .map(|file| SearchResult {
-                    id: file.id.clone(),
-                    name: file.name,
-                    description: file.path.clone(),
-                    icon: Some("file".to_string()),
-                    result_type: ResultType::File,
-                    score: 10000,
-                    frecency_score: 0.0,
-                    preview: None,
-                    pinned: false,
-                    action: SearchAction::OpenFile { path: file.path },
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Always surface a "Re-index files now" affordance — same pattern
-    // as the notes route's "Create new note". A user with an empty
-    // file index types `f` and otherwise sees nothing; this entry
-    // makes the empty-state visible and gives them a one-click path
-    // to populate the index from whatever paths are configured in
-    // Settings.
-    out.push(SearchResult {
-        id: "file:__reindex__".to_string(),
-        name: "Re-index files now".to_string(),
-        description: "Re-scan the configured indexed paths".to_string(),
-        icon: Some("file_reindex".to_string()),
-        result_type: ResultType::File,
-        score: 1, // sorts to the bottom when real files exist
-        frecency_score: 0.0,
-        preview: None,
-        pinned: false,
-        action: SearchAction::ReindexFiles,
-    });
-    out
-}
-
-// Phase 1A: `calculation_result` and `system_commands_route_results`
-// have moved to `search::providers::calculator` and
-// `search::providers::system_commands` respectively. The dispatcher
-// in `search()` instantiates each provider per call.
+// Phase 1A: notes / files / calculator / system_commands route
+// logic moved to providers in `search::providers::*`. The dispatcher
+// in `search()` instantiates each provider per call. The standalone
+// route-handler free functions that used to live here are gone.
 
 /// WAT-304: build the empty-query default view — up to 5 recently-launched
 /// apps + up to 5 recently-opened files, interleaved by timestamp so the
@@ -329,22 +218,52 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     // currency, skip the rest of the pipeline and return only the
     // calculator's row. The provider returns an empty Vec for
     // non-math input, so checking for non-empty is the discriminator.
-    let calc_results = CalculatorProvider.search(&query);
+    let calc_results = CalculatorProvider.search(&query).await;
     if !calc_results.is_empty() {
         return Ok(calc_results);
     }
 
     match classify_prefix_route(&query) {
         Route::Empty => return Ok(recents_results(&state)),
-        Route::Notes(sub) => return Ok(notes_route_results(&state, sub).await),
-        Route::Files(sub) => return Ok(files_route_results(&state, sub).await),
+        Route::Notes(sub) => {
+            return Ok(NotesProvider {
+                manager: &state.notes,
+                sub,
+            }
+            .search(&query)
+            .await)
+        }
+        Route::Files(sub) => {
+            return Ok(FileSearchProvider {
+                manager: &state.file_search,
+                sub,
+            }
+            .search(&query)
+            .await)
+        }
         Route::Clipboard(sub) => return Ok(clipboard_route_results(&state, sub)),
-        Route::SystemCommands(sub) => return Ok(SystemCommandsProvider { sub }.search(&query)),
+        Route::SystemCommands(sub) => {
+            return Ok(SystemCommandsProvider { sub }.search(&query).await)
+        }
         Route::Passthrough => {}
     }
 
-    let settings = state.settings.read().unwrap();
-    let apps = state.indexed_apps.read().unwrap();
+    // Snapshot the lock-guarded state up front. Holding RwLockReadGuards
+    // across .await points fails the Send bound the async `search`
+    // command requires, so we clone what providers will need and drop
+    // the guards immediately. Settings.web_searches and indexed_apps
+    // are bounded in size (O(tens) and O(hundreds) respectively), so
+    // the clones are cheap; the alternative is a wider switch to
+    // `tokio::sync::RwLock` which we don't need yet.
+    let (web_searches, use_frequency_ranking, max_results) = {
+        let s = state.settings.read().unwrap();
+        (
+            s.web_searches.clone(),
+            s.search.use_frequency_ranking,
+            s.search.max_results,
+        )
+    };
+    let apps: Vec<AppEntry> = state.indexed_apps.read().unwrap().clone();
 
     let mut items: Vec<SearchResult> = Vec::new();
 
@@ -354,9 +273,10 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
     // dispatcher no longer hand-rolls the SearchResult struct.
     items.extend(
         WebSearchProvider {
-            configs: &settings.web_searches,
+            configs: &web_searches,
         }
-        .search(&query),
+        .search(&query)
+        .await,
     );
 
     // Phase 1A: snippets via `ResultProvider`. WAT-301 — runs as a
@@ -367,7 +287,8 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         SnippetsProvider {
             manager: &state.snippets,
         }
-        .search(&query),
+        .search(&query)
+        .await,
     );
 
     // Phase 1A: apps via `ResultProvider`. The dispatcher gates the
@@ -379,10 +300,11 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         items.extend(
             AppsProvider {
                 apps: &apps,
-                use_frequency_ranking: settings.search.use_frequency_ranking,
+                use_frequency_ranking,
                 now: chrono::Utc::now().timestamp(),
             }
-            .search(&query),
+            .search(&query)
+            .await,
         );
     }
 
@@ -396,13 +318,15 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         BrowserTabsProvider {
             windows: &open_windows,
         }
-        .search(&query),
+        .search(&query)
+        .await,
     );
     items.extend(
         WindowsProvider {
             windows: &open_windows,
         }
-        .search(&query),
+        .search(&query)
+        .await,
     );
 
     // Gemini Improvement #2: Add files with frecency bonus.
@@ -425,7 +349,7 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 
     // Search and limit results
     let mut results = state.search_engine.search(&query, items);
-    results.truncate(settings.search.max_results);
+    results.truncate(max_results);
     Ok(results)
 }
 
