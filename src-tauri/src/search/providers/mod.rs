@@ -14,5 +14,7 @@
 //!    decision
 
 pub mod apps;
+pub mod browser_tabs;
 pub mod snippets;
 pub mod web_search;
+pub mod windows;

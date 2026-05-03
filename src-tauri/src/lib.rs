@@ -28,8 +28,10 @@ use indexers::{get_indexer, AppIndexer};
 use search::dispatch::{classify_prefix_route, Route, SubQuery};
 use search::provider::ResultProvider;
 use search::providers::apps::AppsProvider;
+use search::providers::browser_tabs::BrowserTabsProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::web_search::WebSearchProvider;
+use search::providers::windows::WindowsProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
 use std::sync::{Arc, RwLock};
 use tauri::{Manager, State};
@@ -436,62 +438,24 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         );
     }
 
-    // Gemini Improvement #6: Add open windows to search results.
-    if let Ok(windows) = actions::windows::get_open_windows() {
-        for window in windows {
-            // For browser windows, also surface every tab as its own
-            // switcher row via UIA. The window-level row stays in the
-            // list — selecting it focuses the window without changing
-            // the active tab. Selecting a tab row activates that tab.
-            let is_browser = actions::browser_tabs::is_browser_process(&window.process_name);
-            if is_browser {
-                if let Ok(tabs) =
-                    actions::browser_tabs::get_browser_tabs(window.hwnd, &window.process_name)
-                {
-                    for tab in tabs {
-                        items.push(SearchResult {
-                            // Composite id: window HWND + tab index. Stable
-                            // for React keying within a single enum.
-                            id: format!("tab:{:x}:{}", tab.window_hwnd, tab.index),
-                            name: tab.name.clone(),
-                            description: format!("Tab in {}", tab.process_name),
-                            icon: Some("browser_tab".to_string()),
-                            result_type: ResultType::BrowserTab,
-                            // Rank tabs slightly above plain windows so
-                            // when both match, the more specific tab
-                            // surfaces first.
-                            score: 200,
-                            frecency_score: 0.0,
-                            preview: None,
-                            pinned: false,
-                            action: SearchAction::FocusBrowserTab {
-                                hwnd: tab.window_hwnd,
-                                index: tab.index,
-                            },
-                        });
-                    }
-                }
-            }
-
-            items.push(SearchResult {
-                // HWND is unique per window; using it as the id means
-                // multi-window apps (Brave with three browser windows,
-                // VS Code with two projects) get distinct switcher rows
-                // instead of collapsing into one.
-                id: format!("win:{:x}", window.hwnd),
-                name: window.title,
-                description: format!("Switch to {}", window.process_name),
-                icon: Some("window".to_string()),
-                result_type: ResultType::OpenWindow,
-                // Rank windows slightly higher than apps by giving them a base score.
-                score: 100,
-                frecency_score: 0.0,
-                preview: None,
-                pinned: false,
-                action: SearchAction::FocusWindow { hwnd: window.hwnd },
-            });
+    // Phase 1A: open windows + browser tabs via two `ResultProvider`
+    // impls that share a single `get_open_windows()` enumeration —
+    // the cross-platform FFI work runs once per query, not twice.
+    // Errors are silenced here (same policy as before): an empty
+    // window list yields zero results from both providers.
+    let open_windows = actions::windows::get_open_windows().unwrap_or_default();
+    items.extend(
+        BrowserTabsProvider {
+            windows: &open_windows,
         }
-    }
+        .search(&query),
+    );
+    items.extend(
+        WindowsProvider {
+            windows: &open_windows,
+        }
+        .search(&query),
+    );
 
     // Gemini Improvement #2: Add files with frecency bonus.
     if let Ok(files) = state.file_search.get_recent(50) {
