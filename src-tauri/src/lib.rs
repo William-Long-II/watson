@@ -27,6 +27,7 @@ use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
 use search::dispatch::{classify_prefix_route, Route, SubQuery};
 use search::provider::ResultProvider;
+use search::providers::apps::AppsProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::web_search::WebSearchProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
@@ -419,31 +420,20 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         .search(&query),
     );
 
-    // Add apps
+    // Phase 1A: apps via `ResultProvider`. The dispatcher gates the
+    // call on `!query.contains(' ') || items.is_empty()` (single-word
+    // query, OR fall back when nothing else matched) — that perf trim
+    // stays here because it short-circuits the entire app emission,
+    // not just per-app filtering.
     if !query.contains(' ') || items.is_empty() {
-        let now = chrono::Utc::now().timestamp();
-        let use_frequency_ranking = settings.search.use_frequency_ranking;
-        for app in apps.iter() {
-            let bonus = if use_frequency_ranking {
-                search::ranking::frecency_score(app.launch_count, app.last_launched, now)
-            } else {
-                0.0
-            };
-            items.push(SearchResult {
-                id: app.id.clone(),
-                name: app.name.clone(),
-                description: "Application".to_string(),
-                icon: app.icon_cache_path.clone(),
-                result_type: ResultType::Application,
-                score: 0,
-                frecency_score: bonus,
-                preview: None,
-                pinned: false,
-                action: SearchAction::LaunchApp {
-                    path: app.path.clone(),
-                },
-            });
-        }
+        items.extend(
+            AppsProvider {
+                apps: &apps,
+                use_frequency_ranking: settings.search.use_frequency_ranking,
+                now: chrono::Utc::now().timestamp(),
+            }
+            .search(&query),
+        );
     }
 
     // Gemini Improvement #6: Add open windows to search results.
