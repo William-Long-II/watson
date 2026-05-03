@@ -352,7 +352,7 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
         SearchAction::LaunchApp { path } => {
             actions::handlers::launch_app::handle(path, &state.db, &state.indexed_apps)
         }
-        SearchAction::OpenUrl { url } => actions::open_url(&url),
+        SearchAction::OpenUrl { url } => actions::handlers::open_url::handle(url),
         SearchAction::RunCommand { command } => execute_command(&command),
         SearchAction::CopyClipboard { content } => state.clipboard.copy_to_clipboard(&content),
         SearchAction::OpenNote { note_id: _ } => {
@@ -360,11 +360,7 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             Ok(())
         }
         SearchAction::OpenFile { path } => {
-            // WAT-304: record open before invoking the OS so stats
-            // reflect user intent even if the OS-level open fails.
-            // Failure to record is non-fatal — the open proceeds.
-            let _ = state.file_search.record_open(&path);
-            open::that(&path).map_err(|e| e.to_string())
+            actions::handlers::open_file::handle(path, &state.file_search)
         }
         SearchAction::PasteSnippet { expansion } => {
             // WAT-301: two steps. (1) Put the expansion on the
