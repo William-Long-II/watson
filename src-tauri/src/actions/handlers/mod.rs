@@ -21,6 +21,9 @@
 //! Frontend-only variants (`OpenNote`, `CreateNewNote`) stay no-op
 //! Ok in the dispatcher and don't need a handler module.
 
+pub mod copy_clipboard;
 pub mod launch_app;
 pub mod open_file;
 pub mod open_url;
+pub mod paste_snippet;
+pub mod run_command;
