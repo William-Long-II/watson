@@ -16,6 +16,7 @@
 pub mod apps;
 pub mod browser_tabs;
 pub mod calculator;
+pub mod captures;
 pub mod file_search;
 pub mod notes;
 pub mod snippets;

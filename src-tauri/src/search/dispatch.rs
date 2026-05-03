@@ -25,7 +25,7 @@ use crate::config::settings::WebSearch;
 
 /// Reserved query prefixes that short-circuit before web-search keyword matching.
 /// Using one of these as a web-search keyword makes that web search unreachable.
-pub const RESERVED_PREFIXES: &[&str] = &["n", "notes", "f", "files", "cb", "clip"];
+pub const RESERVED_PREFIXES: &[&str] = &["n", "notes", "f", "files", "cb", "clip", "cap", "captures"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
@@ -36,6 +36,12 @@ pub enum Route {
     /// WAT-306: `>` alone lists all system commands; `>foo` filters them.
     /// Exclusive route — apps and web searches are not mixed in.
     SystemCommands(SubQuery),
+    /// Phase 1A capture model: aggregated view across notes, snippets,
+    /// and clipboard entries. Sorted by recency. The `cap` / `captures`
+    /// prefix activates this route exclusively (no apps / web mixed
+    /// in) so the user can scan everything they've recently captured
+    /// without route-hopping.
+    Captures(SubQuery),
     /// Not a reserved-prefix route. Caller should check web-search match next,
     /// then fall through to general fuzzy-match over apps / commands / web.
     Passthrough,
@@ -80,6 +86,7 @@ pub fn classify_prefix_route(query: &str) -> Route {
         "n" | "notes" => return Route::Notes(SubQuery::Listing),
         "f" | "files" => return Route::Files(SubQuery::Listing),
         "cb" | "clip" => return Route::Clipboard(SubQuery::Listing),
+        "cap" | "captures" => return Route::Captures(SubQuery::Listing),
         _ => {}
     }
 
@@ -92,6 +99,9 @@ pub fn classify_prefix_route(query: &str) -> Route {
     }
     if let Some(sub) = strip_one_of(query, &["cb ", "clip "]) {
         return Route::Clipboard(SubQuery::Search(sub.to_string()));
+    }
+    if let Some(sub) = strip_one_of(query, &["cap ", "captures "]) {
+        return Route::Captures(SubQuery::Search(sub.to_string()));
     }
 
     Route::Passthrough
@@ -361,10 +371,46 @@ mod tests {
                     Route::Notes(SubQuery::Listing)
                         | Route::Files(SubQuery::Listing)
                         | Route::Clipboard(SubQuery::Listing)
+                        | Route::Captures(SubQuery::Listing)
                 ),
                 "RESERVED_PREFIXES entry '{prefix}' did not classify to a listing route: {route:?}",
             );
         }
+    }
+
+    // --- Phase 1A capture model: `cap` / `captures` route ---
+
+    #[test]
+    fn bare_cap_and_captures_are_captures_listing() {
+        assert_eq!(
+            classify_prefix_route("cap"),
+            Route::Captures(SubQuery::Listing)
+        );
+        assert_eq!(
+            classify_prefix_route("captures"),
+            Route::Captures(SubQuery::Listing)
+        );
+    }
+
+    #[test]
+    fn cap_space_subquery_is_captures_search() {
+        assert_eq!(
+            classify_prefix_route("cap address"),
+            Route::Captures(SubQuery::Search("address".into()))
+        );
+        assert_eq!(
+            classify_prefix_route("captures address"),
+            Route::Captures(SubQuery::Search("address".into()))
+        );
+    }
+
+    #[test]
+    fn word_starting_with_cap_is_not_a_captures_prefix() {
+        // `capacity`, `capture` (no `s`), `cape` etc. would otherwise
+        // collide with the new prefix. The exact-match listing path
+        // and the prefix-with-space search path together prevent that.
+        assert_eq!(classify_prefix_route("capacity"), Route::Passthrough);
+        assert_eq!(classify_prefix_route("capricorn"), Route::Passthrough);
     }
 
     // --- match_web_search ---
