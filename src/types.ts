@@ -3,7 +3,7 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window' | 'browser_tab' | 'scene';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window' | 'browser_tab' | 'script_command' | 'scene';
   /** The primary fuzzy-match score from the backend engine. */
   score: number;
   /** Gemini Improvement #2: secondary frecency score (frequency + recency). */
@@ -75,6 +75,25 @@ export interface Settings {
   web_searches: WebSearch[];
   file_search: FileSearchSettings;
   clipboard: ClipboardSettings;
+  /** WAT-501: user-defined script commands. */
+  script_commands: ScriptCommand[];
+}
+
+/**
+ * WAT-501: a keyword bound to a script. Typing `<keyword> <query>` runs
+ * the script with the query and shows its JSON stdout as results.
+ */
+export interface ScriptCommand {
+  name: string;
+  keyword: string;
+  /** Path to the script; `~/` is expanded. */
+  script: string;
+  /** Optional interpreter command; inferred from the extension when unset. */
+  interpreter?: string;
+  /** Fallback emoji icon for rows that don't set their own. */
+  icon?: string;
+  /** Kill the script after this many ms (backend default 5000). */
+  timeout_ms?: number;
 }
 
 export interface ClipboardSettings {

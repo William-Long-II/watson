@@ -7,6 +7,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { SearchBar } from './components/SearchBar';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { SnippetsSettings } from './components/SnippetsSettings';
+import { ScriptCommandsSettings } from './components/ScriptCommandsSettings';
 import { ScenesSettings } from './components/ScenesSettings';
 import { ConfirmModal } from './components/ConfirmModal';
 import { PanelHost } from './components/PanelHost';
@@ -477,6 +478,9 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
         {/* WAT-301: snippets CRUD lives in its own component to keep
             this file readable. */}
         <SnippetsSettings />
+
+        {/* WAT-501: keyword → script commands. */}
+        <ScriptCommandsSettings />
 
         {/* Phase 2a (#74): Scenes — run several actions with one Enter. */}
         <ScenesSettings />

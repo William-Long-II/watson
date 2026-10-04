@@ -196,6 +196,27 @@ function DefaultIcon() {
   );
 }
 
+/**
+ * WAT-502: script rows can carry their own emoji icon. Anything that
+ * looks like a path or URL is ignored (local files would need the asset
+ * protocol) and falls back to the generic script glyph.
+ */
+function ScriptIcon({ icon }: { icon: string | null }) {
+  const glyph = icon && icon.length <= 8 && !/[\\/.:]/.test(icon) ? icon : null;
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center">
+      {glyph ? (
+        <span className="text-xl leading-none" aria-hidden="true">{glyph}</span>
+      ) : (
+        <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M4 17l6-5-6-5" />
+          <path d="M12 19h8" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
 export function ResultItem({ result, isSelected, onClick, index }: ResultItemProps) {
   const getIcon = () => {
     switch (result.result_type) {
@@ -219,6 +240,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <WindowIcon />;
       case 'browser_tab':
         return <BrowserTabIcon />;
+      case 'script_command':
+        return <ScriptIcon icon={result.icon} />;
       case 'scene':
         return <SceneIcon />;
       default:
@@ -248,6 +271,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Win';
       case 'browser_tab':
         return 'Tab';
+      case 'script_command':
+        return 'Script';
       case 'scene':
         return 'Scene';
       default:
