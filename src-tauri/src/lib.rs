@@ -36,7 +36,7 @@ use search::providers::calculator::CalculatorProvider;
 use search::providers::captures::CapturesProvider;
 use search::providers::file_search::FileSearchProvider;
 use search::providers::notes::NotesProvider;
-use search::providers::scenes::ScenesProvider;
+use search::providers::scenes::{SceneSaveProvider, ScenesProvider};
 use search::providers::script_commands::ScriptCommandProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::system_commands::SystemCommandsProvider;
@@ -284,6 +284,18 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
             .search(&query)
             .await)
         }
+        Route::SaveScene(name) => {
+            let apps: Vec<AppEntry> = state.indexed_apps.read().unwrap().clone();
+            let windows = actions::windows::get_open_windows().unwrap_or_default();
+            return Ok(SceneSaveProvider {
+                manager: &state.scenes,
+                windows: &windows,
+                apps: &apps,
+                name: &name,
+            }
+            .search(&query)
+            .await);
+        }
         Route::Passthrough => {}
     }
 
@@ -453,6 +465,12 @@ fn execute_action(
             });
             Ok(())
         }
+        SearchAction::SaveScene { name } => actions::handlers::save_scene::handle(
+            &name,
+            &state.scenes,
+            &state.indexed_apps,
+            &state.notifications,
+        ),
     }
 }
 

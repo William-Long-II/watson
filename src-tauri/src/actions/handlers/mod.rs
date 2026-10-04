@@ -19,6 +19,8 @@
 //! 6. `reindex_files` — interacts with FileIndexer + settings
 //! 7. `run_scene` — Phase 2a: sequences the handlers above for each
 //!    step of a Scene; adds no launch logic of its own
+//! 8. `save_scene` — `scene save <name>`: captures the open apps
+//!    into a Scene via `scenes::capture`
 //!
 //! Frontend-only variants (`OpenNote`, `CreateNewNote`) stay no-op
 //! Ok in the dispatcher and don't need a handler module.
@@ -33,3 +35,4 @@ pub mod paste_snippet;
 pub mod reindex_files;
 pub mod run_command;
 pub mod run_scene;
+pub mod save_scene;

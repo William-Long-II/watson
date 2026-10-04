@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`scene save <name>` (#74)** - Type `scene save Start Work` and press Enter to turn the apps you have open right now into a Scene. Each open app that matches an installed app becomes a launch step, in window order; the row previews which apps will be captured before you press Enter. Saving over an existing Scene's name replaces its steps and keeps its icon and delay. The result (and any windows that couldn't be matched to an installed app) lands in the notifications drawer. Browser URLs are not captured, because tab lists only expose titles; add Open URL steps under Settings → Scenes. On Linux Wayland compositors other than wlroots, open windows can't be listed, so `scene save` explains that instead of saving.
 
 ## [1.8.0] - 2026-10-04
 

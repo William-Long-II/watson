@@ -27,7 +27,8 @@ export type SearchAction =
   | { type: 'focus_browser_tab'; hwnd: number; index: number }
   | { type: 'create_new_note' }
   | { type: 'reindex_files' }
-  | { type: 'run_scene'; scene_id: string };
+  | { type: 'run_scene'; scene_id: string }
+  | { type: 'save_scene'; name: string };
 
 export interface Snippet {
   id: string;
