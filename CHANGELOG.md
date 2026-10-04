@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Script commands** - Bind a keyword to your own script in Settings → Script Commands. Typing `<keyword> <query>` runs the script with the query and shows its JSON output as results, with per-row icons and open-URL / copy / open-file actions. The output contract is documented in the README (WAT-501, WAT-502).
+
 
 ## [1.7.0] - 2026-05-02
 
