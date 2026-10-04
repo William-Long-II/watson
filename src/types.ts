@@ -3,7 +3,7 @@ export interface SearchResult {
   name: string;
   description: string;
   icon: string | null;
-  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window' | 'browser_tab' | 'script_command';
+  result_type: 'application' | 'web_search' | 'system_command' | 'clipboard' | 'note' | 'file' | 'calculation' | 'snippet' | 'open_window' | 'browser_tab' | 'script_command' | 'scene';
   /** The primary fuzzy-match score from the backend engine. */
   score: number;
   /** Gemini Improvement #2: secondary frecency score (frequency + recency). */
@@ -26,7 +26,8 @@ export type SearchAction =
   | { type: 'focus_window'; hwnd: number }
   | { type: 'focus_browser_tab'; hwnd: number; index: number }
   | { type: 'create_new_note' }
-  | { type: 'reindex_files' };
+  | { type: 'reindex_files' }
+  | { type: 'run_scene'; scene_id: string };
 
 export interface Snippet {
   id: string;
@@ -35,6 +36,35 @@ export interface Snippet {
   expansion: string;
   created_at: number;
   modified_at: number;
+}
+
+/**
+ * Phase 2a (#74): one step of a Scene. Mirrors `scenes::SceneStep` in
+ * Rust. `focus_window` stores app + title (not an HWND) so a saved
+ * Scene still resolves after the window is closed and reopened.
+ */
+export type SceneStep =
+  | { type: 'launch_app'; path: string }
+  | { type: 'open_url'; url: string }
+  | { type: 'focus_window'; app: string; title: string }
+  | { type: 'run_command'; command: string };
+
+export interface Scene {
+  id: string;
+  name: string;
+  icon: string | null;
+  steps: SceneStep[];
+  inter_step_delay_ms: number;
+  created_at: number;
+  modified_at: number;
+}
+
+/** The user-editable fields sent to `create_scene` / `update_scene`. */
+export interface SceneInput {
+  name: string;
+  icon: string | null;
+  steps: SceneStep[];
+  inter_step_delay_ms: number;
 }
 
 export interface Settings {

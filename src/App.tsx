@@ -8,6 +8,7 @@ import { SearchBar } from './components/SearchBar';
 import { StartupWarningBanner } from './components/StartupWarningBanner';
 import { SnippetsSettings } from './components/SnippetsSettings';
 import { ScriptCommandsSettings } from './components/ScriptCommandsSettings';
+import { ScenesSettings } from './components/ScenesSettings';
 import { ConfirmModal } from './components/ConfirmModal';
 import { PanelHost } from './components/PanelHost';
 import { useAppStore } from './stores/app';
@@ -480,6 +481,9 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
 
         {/* WAT-501: keyword → script commands. */}
         <ScriptCommandsSettings />
+
+        {/* Phase 2a (#74): Scenes — run several actions with one Enter. */}
+        <ScenesSettings />
 
         {/* WAT-303: clipboard privacy filter */}
         <div>

@@ -70,6 +70,9 @@ pub enum ResultType {
     /// action comes from the script's JSON output (open_url,
     /// copy_clipboard, open_file).
     ScriptCommand,
+    /// Phase 2a (#74): a saved Scene. The action is always
+    /// `RunScene { scene_id }`.
+    Scene,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,6 +104,10 @@ pub enum SearchAction {
     /// the "Re-index files now" affordance so a user with an empty
     /// file index can populate it without leaving the launcher.
     ReindexFiles,
+    /// Phase 2a (#74): run every step of a saved Scene in order.
+    /// Carries the id, not the steps, so an edit made after the
+    /// search ran is still honoured.
+    RunScene { scene_id: String },
 }
 
 pub struct SearchEngine {

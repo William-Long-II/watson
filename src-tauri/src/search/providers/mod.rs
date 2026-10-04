@@ -19,6 +19,7 @@ pub mod calculator;
 pub mod captures;
 pub mod file_search;
 pub mod notes;
+pub mod scenes;
 pub mod script_commands;
 pub mod snippets;
 pub mod system_commands;
