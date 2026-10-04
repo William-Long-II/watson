@@ -70,8 +70,8 @@ pub enum ResultType {
     /// action comes from the script's JSON output (open_url,
     /// copy_clipboard, open_file).
     ScriptCommand,
-    /// Phase 2a (#74): a saved Scene. The action is always
-    /// `RunScene { scene_id }`.
+    /// Phase 2a (#74): a saved Scene (`RunScene { scene_id }`), or the
+    /// `scene save <name>` row (`SaveScene { name }`).
     Scene,
 }
 
@@ -108,6 +108,12 @@ pub enum SearchAction {
     /// Carries the id, not the steps, so an edit made after the
     /// search ran is still honoured.
     RunScene { scene_id: String },
+    /// #74: `scene save <name>` — capture the apps open right now as
+    /// the Scene called `name` (replacing its steps if it exists).
+    /// Capture runs at activation, not search time, so the saved
+    /// steps match the desktop the user is looking at when they press
+    /// Enter.
+    SaveScene { name: String },
 }
 
 pub struct SearchEngine {

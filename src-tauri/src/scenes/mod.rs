@@ -21,6 +21,8 @@
 //! process name and a title substring instead; the runner resolves
 //! them to a live window at activation time via `resolve_window`.
 
+pub mod capture;
+
 use crate::actions::windows::WindowEntry;
 use crate::db::Database;
 use chrono::Utc;
@@ -234,6 +236,43 @@ impl ScenesManager {
                 row_to_scene,
             )
             .map_err(|e| e.to_string())
+    }
+}
+
+impl ScenesManager {
+    /// Case-insensitive lookup by display name, used by `scene save`
+    /// to decide between creating a Scene and re-capturing one.
+    pub fn find_by_name(&self, name: &str) -> Result<Option<Scene>, String> {
+        let name = name.trim().to_lowercase();
+        Ok(self.list()?.into_iter().find(|s| s.name.to_lowercase() == name))
+    }
+
+    /// `scene save <name>`: store captured steps under `name`. Saving
+    /// over an existing name replaces that Scene's steps and keeps its
+    /// icon and delay, so re-running `scene save Start Work` refreshes
+    /// the Scene instead of creating a duplicate. Returns the Scene and
+    /// whether an existing one was replaced.
+    pub fn save_captured(&self, name: &str, steps: Vec<SceneStep>) -> Result<(Scene, bool), String> {
+        match self.find_by_name(name)? {
+            Some(existing) => {
+                let input = SceneInput {
+                    name: existing.name.clone(),
+                    icon: existing.icon.clone(),
+                    steps,
+                    inter_step_delay_ms: existing.inter_step_delay_ms,
+                };
+                Ok((self.update(&existing.id, &input)?, true))
+            }
+            None => {
+                let input = SceneInput {
+                    name: name.to_string(),
+                    icon: None,
+                    steps,
+                    inter_step_delay_ms: DEFAULT_INTER_STEP_DELAY_MS,
+                };
+                Ok((self.create(&input)?, false))
+            }
+        }
     }
 }
 
@@ -528,6 +567,47 @@ mod tests {
         let scenes = m.list().unwrap();
         assert_eq!(scenes.len(), 1);
         assert!(scenes[0].steps.is_empty());
+    }
+
+    #[test]
+    fn find_by_name_is_case_insensitive() {
+        let m = manager();
+        let created = m.create(&start_work()).unwrap();
+        assert_eq!(m.find_by_name("  start WORK ").unwrap().unwrap().id, created.id);
+        assert!(m.find_by_name("other").unwrap().is_none());
+    }
+
+    #[test]
+    fn save_captured_creates_with_default_delay() {
+        let m = manager();
+        let steps = vec![SceneStep::LaunchApp { path: "/Applications/Slack.app".into() }];
+        let (scene, replaced) = m.save_captured("Focus", steps.clone()).unwrap();
+        assert!(!replaced);
+        assert_eq!(scene.name, "Focus");
+        assert_eq!(scene.steps, steps);
+        assert_eq!(scene.inter_step_delay_ms, DEFAULT_INTER_STEP_DELAY_MS);
+    }
+
+    #[test]
+    fn save_captured_over_existing_name_replaces_steps_keeps_icon_and_delay() {
+        let m = manager();
+        let created = m.create(&start_work()).unwrap();
+        let steps = vec![SceneStep::LaunchApp { path: "/usr/bin/code".into() }];
+        let (scene, replaced) = m.save_captured("start work", steps.clone()).unwrap();
+        assert!(replaced);
+        assert_eq!(scene.id, created.id);
+        assert_eq!(scene.name, "Start Work");
+        assert_eq!(scene.icon.as_deref(), Some("💼"));
+        assert_eq!(scene.inter_step_delay_ms, 250);
+        assert_eq!(scene.steps, steps);
+        assert_eq!(m.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn save_captured_with_no_steps_is_rejected() {
+        let m = manager();
+        assert!(m.save_captured("Empty", vec![]).is_err());
+        assert!(m.list().unwrap().is_empty());
     }
 
     // --- window resolution ---

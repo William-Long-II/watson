@@ -244,6 +244,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
 
+      // `scene save` with no name yet: there is nothing to save, so
+      // complete the command and let the user type the name instead of
+      // hiding the launcher.
+      if (selected.action.type === 'save_scene' && !selected.action.name.trim()) {
+        await get().setQuery('scene save ');
+        return;
+      }
+
       // Snippets with `{input:Prompt}` variables ask for those values
       // in the launcher first; `submitSnippetInputs` does the paste.
       if (selected.action.type === 'paste_snippet') {

@@ -59,3 +59,39 @@ describe('store.executeSelected resizes before hiding', () => {
     expect(useAppStore.getState().results).toEqual([]);
   });
 });
+
+describe('store.executeSelected for scene save', () => {
+  let calls: { cmd: string; args?: unknown }[];
+
+  beforeEach(() => {
+    calls = [];
+    mockInvoke.mockReset();
+    mockInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+      calls.push({ cmd, args });
+      return [];
+    });
+    useAppStore.setState({ query: 'scene save', selectedIndex: 0, currentPanel: null });
+  });
+
+  it('without a name, completes the command and keeps the launcher open', async () => {
+    useAppStore.setState({ results: [makeResult(0, { type: 'save_scene', name: '' })] });
+
+    await useAppStore.getState().executeSelected();
+
+    const cmds = calls.map((c) => c.cmd);
+    expect(cmds).not.toContain('execute_action');
+    expect(cmds).not.toContain('hide_window');
+    expect(useAppStore.getState().query).toBe('scene save ');
+  });
+
+  it('with a name, hides the launcher and runs the save', async () => {
+    const action = { type: 'save_scene', name: 'Focus' } as const;
+    useAppStore.setState({ results: [makeResult(0, action)] });
+
+    await useAppStore.getState().executeSelected();
+
+    const cmds = calls.map((c) => c.cmd);
+    expect(cmds.indexOf('hide_window')).toBeGreaterThanOrEqual(0);
+    expect(calls.find((c) => c.cmd === 'execute_action')?.args).toEqual({ action });
+  });
+});

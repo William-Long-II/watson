@@ -42,6 +42,10 @@ pub enum Route {
     /// in) so the user can scan everything they've recently captured
     /// without route-hopping.
     Captures(SubQuery),
+    /// #74: `scene save <name>` captures the open apps as a Scene. The
+    /// payload is the trimmed name, empty while the user is still
+    /// typing (`scene save` / `scene save `).
+    SaveScene(String),
     /// Not a reserved-prefix route. Caller should check web-search match next,
     /// then fall through to general fuzzy-match over apps / commands / web.
     Passthrough,
@@ -79,6 +83,15 @@ pub fn classify_prefix_route(query: &str) -> Route {
             return Route::SystemCommands(SubQuery::Listing);
         }
         return Route::SystemCommands(SubQuery::Search(sub));
+    }
+
+    // #74: a two-word command, matched before the one-word prefixes
+    // so a future `scene` prefix can't shadow it.
+    if query == "scene save" {
+        return Route::SaveScene(String::new());
+    }
+    if let Some(name) = query.strip_prefix("scene save ") {
+        return Route::SaveScene(name.trim().to_string());
     }
 
     // Bare prefix alone: listing mode.
@@ -256,6 +269,24 @@ mod tests {
     #[test]
     fn empty_query_is_empty_route() {
         assert_eq!(classify_prefix_route(""), Route::Empty);
+    }
+
+    #[test]
+    fn scene_save_routes_with_trimmed_name() {
+        assert_eq!(
+            classify_prefix_route("scene save Start Work "),
+            Route::SaveScene("Start Work".into())
+        );
+        assert_eq!(classify_prefix_route("scene save"), Route::SaveScene(String::new()));
+        assert_eq!(classify_prefix_route("scene save "), Route::SaveScene(String::new()));
+    }
+
+    #[test]
+    fn scene_words_without_save_stay_passthrough() {
+        // Typing a Scene's own name must still reach the Scenes provider.
+        assert_eq!(classify_prefix_route("scene"), Route::Passthrough);
+        assert_eq!(classify_prefix_route("scene saver"), Route::Passthrough);
+        assert_eq!(classify_prefix_route("start work"), Route::Passthrough);
     }
 
     #[test]

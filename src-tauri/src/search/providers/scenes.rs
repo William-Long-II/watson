@@ -9,6 +9,9 @@
 //!
 //! Lifetime: borrows `&ScenesManager` for one call's duration.
 
+use crate::actions::windows::WindowEntry;
+use crate::db::AppEntry;
+use crate::scenes::capture::{capture, summary};
 use crate::scenes::{Scene, ScenesManager};
 use crate::search::provider::ResultProvider;
 use crate::search::{ResultType, SearchAction, SearchResult};
@@ -78,6 +81,55 @@ impl<'a> ResultProvider for ScenesProvider<'a> {
     }
 }
 
+/// The single row the `scene save <name>` route shows. It previews
+/// what a capture would store right now; the real capture runs again
+/// when the user presses Enter (`SearchAction::SaveScene`).
+pub struct SceneSaveProvider<'a> {
+    pub manager: &'a ScenesManager,
+    pub windows: &'a [WindowEntry],
+    pub apps: &'a [AppEntry],
+    /// Trimmed name typed after `scene save`; empty while still typing.
+    pub name: &'a str,
+}
+
+#[async_trait::async_trait]
+impl<'a> ResultProvider for SceneSaveProvider<'a> {
+    fn name(&self) -> &'static str {
+        "scene_save"
+    }
+
+    async fn search(&self, _query: &str) -> Vec<SearchResult> {
+        let preview = summary(&capture(self.windows, self.apps));
+        let (name, description) = if self.name.is_empty() {
+            (
+                "Save open apps as a Scene".to_string(),
+                format!("Type a name after \u{201c}scene save\u{201d} \u{b7} {preview}"),
+            )
+        } else {
+            let exists = matches!(self.manager.find_by_name(self.name), Ok(Some(_)));
+            let verb = if exists { "Replace" } else { "Save" };
+            (
+                format!("{verb} Scene \u{201c}{}\u{201d} from open apps", self.name),
+                preview,
+            )
+        };
+        vec![SearchResult {
+            id: "scene-save".to_string(),
+            name,
+            description,
+            icon: Some("scene".to_string()),
+            result_type: ResultType::Scene,
+            score: SCENE_SCORE,
+            frecency_score: 0.0,
+            preview: None,
+            pinned: false,
+            action: SearchAction::SaveScene {
+                name: self.name.to_string(),
+            },
+        }]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +181,77 @@ mod tests {
     async fn empty_query_returns_nothing() {
         let m = manager_with(&["Start Work"]);
         assert!(ScenesProvider { manager: &m }.search("").await.is_empty());
+    }
+
+    fn window(process_name: &str) -> WindowEntry {
+        WindowEntry {
+            hwnd: 1,
+            pid: 1,
+            process_name: process_name.into(),
+            title: "w".into(),
+        }
+    }
+
+    fn app(name: &str, path: &str) -> AppEntry {
+        AppEntry {
+            id: path.into(),
+            name: name.into(),
+            path: path.into(),
+            icon_cache_path: None,
+            launch_count: 0,
+            last_launched: None,
+            platform: "test".into(),
+            modified_at: 0,
+        }
+    }
+
+    #[tokio::test]
+    async fn save_row_previews_capture_and_carries_the_name() {
+        let m = manager_with(&[]);
+        let windows = [window("Slack"), window("Helper")];
+        let apps = [app("Slack", "/Applications/Slack.app")];
+        let rows = SceneSaveProvider {
+            manager: &m,
+            windows: &windows,
+            apps: &apps,
+            name: "Focus",
+        }
+        .search("scene save Focus")
+        .await;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "Save Scene “Focus” from open apps");
+        assert_eq!(rows[0].description, "1 app: Slack");
+        assert!(matches!(&rows[0].action, SearchAction::SaveScene { name } if name == "Focus"));
+    }
+
+    #[tokio::test]
+    async fn save_row_says_replace_for_an_existing_scene() {
+        let m = manager_with(&["Start Work"]);
+        let rows = SceneSaveProvider {
+            manager: &m,
+            windows: &[],
+            apps: &[],
+            name: "start work",
+        }
+        .search("scene save start work")
+        .await;
+        assert!(rows[0].name.starts_with("Replace Scene"), "{}", rows[0].name);
+    }
+
+    #[tokio::test]
+    async fn save_row_without_name_prompts_for_one() {
+        let m = manager_with(&[]);
+        let rows = SceneSaveProvider {
+            manager: &m,
+            windows: &[],
+            apps: &[],
+            name: "",
+        }
+        .search("scene save")
+        .await;
+        assert_eq!(rows[0].name, "Save open apps as a Scene");
+        assert!(rows[0].description.starts_with("Type a name"));
+        assert!(matches!(&rows[0].action, SearchAction::SaveScene { name } if name.is_empty()));
     }
 
     #[test]
