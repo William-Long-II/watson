@@ -653,14 +653,14 @@ function App() {
   }, [settings?.theme.mode]);
 
   return (
-    // Aero-glass + Hexclad-mesh exploration. The `glass-surface-dark`
-    // class layers four backgrounds (inner top highlight, amber corner
-    // glow, hex texture, base vertical gradient) for depth without OS
-    // transparency. `glass-rim-dark` adds the 1px light-catching top
-    // edge + dark bottom shadow via a pseudo-element. Falls back to
-    // the existing `--background` token in light mode (light-glass
-    // treatment is a follow-up if this direction lands).
-    <div className="glass-surface-dark glass-rim-dark text-[var(--foreground)] rounded-xl overflow-hidden border border-[var(--border)] shadow-2xl">
+    // Aero-glass + Hexclad-mesh surface. The `glass-surface` class
+    // layers four backgrounds (inner top highlight, amber corner
+    // glow, honeycomb mesh, base vertical gradient) for depth without
+    // OS transparency. `glass-rim` adds the 1px light-catching top
+    // edge + bottom shadow line via a pseudo-element. Both classes
+    // are theme-aware via the `--glass-*` tokens defined in :root
+    // (light) and overridden in .dark.
+    <div className="glass-surface glass-rim text-[var(--foreground)] rounded-xl overflow-hidden border border-[var(--border)] shadow-2xl">
       {/* Header - draggable */}
       <div
         data-tauri-drag-region
