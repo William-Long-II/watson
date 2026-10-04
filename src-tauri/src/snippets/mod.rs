@@ -20,6 +20,8 @@
 //! uniqueness" for simpler CRUD semantics — the UI can enforce
 //! uniqueness if we want it.
 
+pub mod variables;
+
 use crate::db::Database;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

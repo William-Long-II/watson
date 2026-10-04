@@ -16,7 +16,19 @@ import type {
  * does the rendering; setters here mutate `currentPanel` directly so
  * we never carry stale "visible" booleans across opens.
  */
-export type PanelId = 'settings' | 'scratchpad' | 'noteEditor' | 'notifications';
+export type PanelId =
+  | 'settings'
+  | 'scratchpad'
+  | 'noteEditor'
+  | 'notifications'
+  | 'snippetInput';
+
+/** A snippet waiting on `{input:Prompt}` values before it is pasted. */
+export interface PendingSnippet {
+  expansion: string;
+  /** Distinct prompt labels, in the order they appear in the snippet. */
+  prompts: string[];
+}
 
 interface AppState {
   query: string;
@@ -35,6 +47,8 @@ interface AppState {
   /** WAT-404: when true, the per-result Cmd+K secondary-action menu is open
       for `results[selectedIndex]`. */
   actionMenuOpen: boolean;
+  /** Snippet whose input prompts are showing in the `snippetInput` panel. */
+  pendingSnippet: PendingSnippet | null;
 
   setQuery: (query: string) => void;
   setSelectedIndex: (index: number) => void;
@@ -69,6 +83,8 @@ interface AppState {
   dismissAllNotifications: () => Promise<void>;
   toggleActionMenu: () => void;
   closeActionMenu: () => void;
+  submitSnippetInputs: (values: Record<string, string>) => Promise<void>;
+  cancelSnippetInputs: () => void;
 }
 
 // Height constants
@@ -96,6 +112,10 @@ const PADDING = 28; // Extra padding for rounded corners
 const RECENTS_HEADER_HEIGHT = 24;
 const MIN_HEIGHT = HEADER_HEIGHT + SEARCH_HEIGHT + EMPTY_STATE_HEIGHT + PADDING;
 const MAX_RESULTS_HEIGHT = 320;
+// Snippet input panel: title row + hint (~72) plus one labelled field
+// per prompt (~60 each).
+const SNIPPET_INPUT_BASE_HEIGHT = 72;
+const SNIPPET_INPUT_FIELD_HEIGHT = 60;
 
 export const useAppStore = create<AppState>((set, get) => ({
   query: '',
@@ -111,6 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   notifications: [],
   notificationsUnread: 0,
   actionMenuOpen: false,
+  pendingSnippet: null,
 
   setQuery: async (query: string) => {
     // Frontend-only shortcut: 's ' (s + trailing space) opens the
@@ -220,6 +241,25 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
 
+      // Snippets with `{input:Prompt}` variables ask for those values
+      // in the launcher first; `submitSnippetInputs` does the paste.
+      if (selected.action.type === 'paste_snippet') {
+        const prompts = await invoke<string[]>('snippet_input_prompts', {
+          expansion: selected.action.expansion,
+        });
+        if (prompts.length > 0) {
+          set({
+            query: '',
+            results: [],
+            selectedIndex: 0,
+            pendingSnippet: { expansion: selected.action.expansion, prompts },
+            currentPanel: 'snippetInput',
+          });
+          await get().resizeWindow();
+          return;
+        }
+      }
+
       // Hide window first, then execute action (except for focus_window which needs foreground)
       if (selected.action.type === 'focus_window') {
         await invoke('execute_action', { action: selected.action });
@@ -239,6 +279,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Failed to execute action:', error);
     }
+  },
+
+  submitSnippetInputs: async (values: Record<string, string>) => {
+    const { pendingSnippet } = get();
+    if (!pendingSnippet) return;
+    set({ pendingSnippet: null, currentPanel: null });
+    // Same resize-then-hide order as `executeSelected` so the next
+    // show comes back at the empty-state height.
+    await get().resizeWindow();
+    await get().hideWindow();
+    try {
+      await invoke('paste_snippet', { expansion: pendingSnippet.expansion, inputs: values });
+    } catch (error) {
+      console.error('Failed to paste snippet:', error);
+    }
+  },
+
+  cancelSnippetInputs: () => {
+    set({ pendingSnippet: null, currentPanel: null });
+    get().resizeWindow();
   },
 
   reindexApps: async () => {
@@ -265,11 +325,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resizeWindow: async () => {
-    const { results, currentPanel, query } = get();
+    const { results, currentPanel, query, pendingSnippet } = get();
 
     let height: number;
 
-    if (currentPanel === 'noteEditor') {
+    if (currentPanel === 'snippetInput' && pendingSnippet) {
+      height =
+        HEADER_HEIGHT +
+        SEARCH_HEIGHT +
+        SNIPPET_INPUT_BASE_HEIGHT +
+        pendingSnippet.prompts.length * SNIPPET_INPUT_FIELD_HEIGHT +
+        PADDING;
+    } else if (currentPanel === 'noteEditor') {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + 350 + PADDING; // Note editor height
     } else if (currentPanel === 'scratchpad') {
       height = HEADER_HEIGHT + SEARCH_HEIGHT + 280 + PADDING; // Scratchpad height

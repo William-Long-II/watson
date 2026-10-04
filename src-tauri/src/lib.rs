@@ -39,6 +39,7 @@ use search::providers::system_commands::SystemCommandsProvider;
 use search::providers::web_search::WebSearchProvider;
 use search::providers::windows::WindowsProvider;
 use search::{ResultType, SearchAction, SearchEngine, SearchResult};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tauri::{Manager, State};
 
@@ -377,7 +378,7 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
             actions::handlers::open_file::handle(path, &state.file_search)
         }
         SearchAction::PasteSnippet { expansion } => {
-            actions::handlers::paste_snippet::handle(expansion, &state.clipboard)
+            actions::handlers::paste_snippet::handle(expansion, HashMap::new(), &state.clipboard)
         }
         SearchAction::FocusWindow { hwnd } => actions::handlers::focus_window::handle(hwnd),
         SearchAction::FocusBrowserTab { hwnd, index } => {
@@ -490,6 +491,24 @@ fn search_clipboard(query: String, state: State<AppState>) -> Vec<clipboard::Cli
 #[tauri::command]
 fn clear_clipboard_history(state: State<AppState>) {
     state.clipboard.clear_history();
+}
+
+/// Distinct `{input:Prompt}` labels in a snippet expansion, in order.
+/// The launcher asks for these before calling `paste_snippet`.
+#[tauri::command]
+fn snippet_input_prompts(expansion: String) -> Vec<String> {
+    snippets::variables::input_prompts(&expansion)
+}
+
+/// Paste a snippet whose `{input:...}` values the user has filled in.
+/// Snippets without inputs go through `execute_action` instead.
+#[tauri::command]
+fn paste_snippet(
+    expansion: String,
+    inputs: HashMap<String, String>,
+    state: State<AppState>,
+) -> Result<(), String> {
+    actions::handlers::paste_snippet::handle(expansion, inputs, &state.clipboard)
 }
 
 #[tauri::command]
@@ -963,6 +982,8 @@ pub fn run() {
             search_clipboard,
             clear_clipboard_history,
             copy_to_clipboard,
+            snippet_input_prompts,
+            paste_snippet,
             pin_clipboard_entry,
             unpin_clipboard_entry,
             get_scratchpad,

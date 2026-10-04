@@ -2,6 +2,7 @@ import { Scratchpad } from './Scratchpad';
 import { NoteEditor } from './NoteEditor';
 import { NotificationsDrawer } from './NotificationsDrawer';
 import { ResultsList } from './ResultsList';
+import { SnippetInputPanel } from './SnippetInputPanel';
 import type { PanelId } from '../stores/app';
 import type { ReactNode } from 'react';
 
@@ -30,6 +31,8 @@ export function PanelHost({
       return <NoteEditor />;
     case 'scratchpad':
       return <Scratchpad />;
+    case 'snippetInput':
+      return <SnippetInputPanel />;
     case 'settings':
       return <>{settingsPanel}</>;
     case null:

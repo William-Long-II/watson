@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Snippet variables** - Snippet expansions can now include `{clipboard}` (current clipboard text), `{date}` and `{time}` (local date/time, with an optional strftime format such as `{date:%d/%m/%Y}`), and `{input:Prompt}`, which asks for a value in the launcher before pasting. Unknown or malformed `{...}` text is pasted unchanged, so existing snippets with literal braces keep working.
+
 
 ## [1.7.0] - 2026-05-02
 
