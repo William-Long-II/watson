@@ -5226,9 +5226,10 @@ dependencies = [
 
 [[package]]
 name = "watson"
-version = "1.6.1"
+version = "1.7.0"
 dependencies = [
  "arboard",
+ "async-trait",
  "chrono",
  "core-foundation",
  "directories",
