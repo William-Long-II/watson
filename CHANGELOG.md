@@ -9,9 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Script commands** - Bind a keyword to your own script in Settings → Script Commands. Typing `<keyword> <query>` runs the script with the query and shows its JSON output as results, with per-row icons and open-URL / copy / open-file actions. The output contract is documented in the README (WAT-501, WAT-502).
-
 - **Scenes (#74)** - A Scene is a named, ordered list of steps (launch app, open URL, focus window, run system command) that runs with one Enter. Create, edit, reorder, run and delete Scenes under Settings → Scenes; type the Scene's name (e.g. "start work") in the launcher and press Enter to run it. Steps run in order with a configurable delay (default 200 ms); a failing step doesn't stop the rest and the failures land in the notifications drawer. Scenes are stored in SQLite (migration 007) and survive restarts. Focus-window steps match by app name + title text rather than a window handle, so they keep working across sessions. Linux: focus-window steps work on X11 and wlroots Wayland; on other Wayland compositors they fail and are reported in the notification while the rest of the Scene runs.
 - **Snippet variables** - Snippet expansions can now include `{clipboard}` (current clipboard text), `{date}` and `{time}` (local date/time, with an optional strftime format such as `{date:%d/%m/%Y}`), and `{input:Prompt}`, which asks for a value in the launcher before pasting. Unknown or malformed `{...}` text is pasted unchanged, so existing snippets with literal braces keep working.
+- **Captures route (`cap`)** - Type `cap` (or `captures`) to see your most recent notes, snippets and clipboard entries in one list, or `cap <word>` to search across all three at once. Selecting a result does what it always did for that kind: opens the note, pastes the snippet, or copies the clipboard entry.
+
+### Fixed
+- **Light mode glass surface** - The dark glass treatment (hex texture, amber glow, dark gradient) no longer leaks into Light mode. Both themes now draw the launcher surface from theme tokens, so Light mode gets its own warm, light base.
+- **Window reopening too tall after launching an app** - Launching an app from results left the window at its results-mode height, so the next Alt+Space opened with a band of empty space under Quick Tips. The window now shrinks back to the empty-state size before hiding.
+
+### Technical
+- Search is now built on a `ResultProvider` registry: every source (apps, snippets, windows, browser tabs, calculator, system commands, notes, files) is a provider the dispatcher loops over, instead of hand-wired branches.
+- `execute_action` is split into per-action handlers, and the four panel-visibility flags in the frontend store collapse into a single `PanelHost` / `currentPanel`.
+- Notes, snippets and clipboard entries share a `Capture` trait, which the `cap` route is built on.
 
 ## [1.7.0] - 2026-05-02
 
