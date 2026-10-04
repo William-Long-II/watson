@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Scenes (#74)** - A Scene is a named, ordered list of steps (launch app, open URL, focus window, run system command) that runs with one Enter. Create, edit, reorder, run and delete Scenes under Settings → Scenes; type the Scene's name (e.g. "start work") in the launcher and press Enter to run it. Steps run in order with a configurable delay (default 200 ms); a failing step doesn't stop the rest and the failures land in the notifications drawer. Scenes are stored in SQLite (migration 007) and survive restarts. Focus-window steps match by app name + title text rather than a window handle, so they keep working across sessions. Linux: focus-window steps work on X11 and wlroots Wayland; on other Wayland compositors they fail and are reported in the notification while the rest of the Scene runs.
 
 ## [1.7.0] - 2026-05-02
 

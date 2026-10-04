@@ -10,6 +10,7 @@ mod indexers;
 mod layout;
 mod notes;
 mod notifications;
+mod scenes;
 mod scratchpad;
 mod search;
 mod snippets;
@@ -21,6 +22,7 @@ use config::settings::Settings;
 use files::{FileEntry, FileSearchManager, indexer::FileIndexer};
 use notes::NotesManager;
 use notifications::NotificationsManager;
+use scenes::ScenesManager;
 use scratchpad::ScratchpadManager;
 use snippets::SnippetsManager;
 use warnings::{StartupWarning, StartupWarnings};
@@ -34,6 +36,7 @@ use search::providers::calculator::CalculatorProvider;
 use search::providers::captures::CapturesProvider;
 use search::providers::file_search::FileSearchProvider;
 use search::providers::notes::NotesProvider;
+use search::providers::scenes::ScenesProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::system_commands::SystemCommandsProvider;
 use search::providers::web_search::WebSearchProvider;
@@ -61,6 +64,9 @@ struct AppState {
     /// WAT-301: user-defined text snippets. Surface in search; on
     /// execute, copy expansion and paste into the prior-focused window.
     snippets: SnippetsManager,
+    /// Phase 2a (#74): saved Scenes. Surface in search by name; on
+    /// execute, run each step through the existing action handlers.
+    scenes: ScenesManager,
     /// WAT-105: non-fatal conditions that surfaced during `setup()` and
     /// should be rendered in the UI — e.g., the global hotkey couldn't be
     /// registered because another app already owns it.
@@ -300,6 +306,9 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
         Box::new(SnippetsProvider {
             manager: &state.snippets,
         }),
+        Box::new(ScenesProvider {
+            manager: &state.scenes,
+        }),
         Box::new(BrowserTabsProvider {
             windows: &open_windows,
         }),
@@ -359,7 +368,11 @@ async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchR
 }
 
 #[tauri::command]
-fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), String> {
+fn execute_action(
+    action: SearchAction,
+    state: State<AppState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     match action {
         SearchAction::LaunchApp { path } => {
             actions::handlers::launch_app::handle(path, &state.db, &state.indexed_apps)
@@ -399,6 +412,25 @@ fn execute_action(action: SearchAction, state: State<AppState>) -> Result<(), St
                 Arc::clone(&state.file_search),
                 file_search_settings,
             )
+        }
+        SearchAction::RunScene { scene_id } => {
+            let scene = state
+                .scenes
+                .get(&scene_id)?
+                .ok_or_else(|| format!("scene '{scene_id}' not found"))?;
+            // Sync commands run on the main thread, and a Scene sleeps
+            // between steps — run it on its own thread so the UI stays
+            // responsive. Step failures surface as a notification.
+            std::thread::spawn(move || {
+                let state: State<AppState> = app.state();
+                actions::handlers::run_scene::handle(
+                    &scene,
+                    &state.db,
+                    &state.indexed_apps,
+                    &state.notifications,
+                );
+            });
+            Ok(())
         }
     }
 }
@@ -642,6 +674,32 @@ fn delete_snippet(id: String, state: State<AppState>) -> Result<(), String> {
     state.snippets.delete(&id)
 }
 
+// --- Phase 2a (#74): scene CRUD ---
+
+#[tauri::command]
+fn list_scenes(state: State<AppState>) -> Result<Vec<scenes::Scene>, String> {
+    state.scenes.list()
+}
+
+#[tauri::command]
+fn create_scene(scene: scenes::SceneInput, state: State<AppState>) -> Result<scenes::Scene, String> {
+    state.scenes.create(&scene)
+}
+
+#[tauri::command]
+fn update_scene(
+    id: String,
+    scene: scenes::SceneInput,
+    state: State<AppState>,
+) -> Result<scenes::Scene, String> {
+    state.scenes.update(&id, &scene)
+}
+
+#[tauri::command]
+fn delete_scene(id: String, state: State<AppState>) -> Result<(), String> {
+    state.scenes.delete(&id)
+}
+
 /// WAT-105: frontend calls this on mount to render a banner for any
 /// non-fatal conditions that surfaced during app setup.
 #[tauri::command]
@@ -875,6 +933,7 @@ pub fn run() {
             notes,
             file_search,
             snippets: SnippetsManager::new(Arc::clone(&db)),
+            scenes: ScenesManager::new(Arc::clone(&db)),
             startup_warnings,
             notifications,
         })
@@ -985,6 +1044,10 @@ pub fn run() {
             create_snippet,
             update_snippet,
             delete_snippet,
+            list_scenes,
+            create_scene,
+            update_scene,
+            delete_scene,
             list_notifications,
             notifications_unread_count,
             dismiss_notification,

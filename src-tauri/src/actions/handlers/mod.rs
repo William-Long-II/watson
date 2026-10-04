@@ -17,6 +17,8 @@
 //! 5. `focus_window`, `focus_browser_tab` — cross-platform FFI
 //!    surfaces, already have their own modules in `actions::*`
 //! 6. `reindex_files` — interacts with FileIndexer + settings
+//! 7. `run_scene` — Phase 2a: sequences the handlers above for each
+//!    step of a Scene; adds no launch logic of its own
 //!
 //! Frontend-only variants (`OpenNote`, `CreateNewNote`) stay no-op
 //! Ok in the dispatcher and don't need a handler module.
@@ -30,3 +32,4 @@ pub mod open_url;
 pub mod paste_snippet;
 pub mod reindex_files;
 pub mod run_command;
+pub mod run_scene;
