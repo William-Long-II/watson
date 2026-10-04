@@ -196,6 +196,11 @@ function SnippetEditor({ snippet, onSave, onCancel, onDelete }: SnippetEditorPro
           placeholder="The text that gets pasted&#10;(multi-line is fine)"
           className="w-full h-20 px-3 py-1.5 text-sm bg-[var(--background)] border border-[var(--border)] rounded-lg resize-y outline-none focus:ring-1 focus:ring-blue-500"
         />
+        <p className="text-xs text-gray-500 mt-1">
+          Variables: <code>{'{clipboard}'}</code>, <code>{'{date}'}</code>,{' '}
+          <code>{'{time}'}</code> (or <code>{'{date:%d/%m/%Y}'}</code>),{' '}
+          <code>{'{input:Name}'}</code> to ask before pasting.
+        </p>
       </div>
       <div className="flex gap-2 pt-1">
         <button

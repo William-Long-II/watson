@@ -1,5 +1,10 @@
 //! Handler for `SearchAction::PasteSnippet`.
 //!
+//! Template variables (`{clipboard}`, `{date}`, `{time}`,
+//! `{input:Prompt}`) are expanded first — see
+//! `snippets::variables`. `{input:...}` values are collected by the
+//! launcher and passed in `inputs`.
+//!
 //! Two-step expansion: (1) put the expansion on the clipboard so it
 //! is useful even if step 2 fails; (2) synthesize Ctrl/Cmd+V into
 //! the prior-focused window. The frontend hides Watson before the
@@ -24,11 +29,31 @@
 //! shell-out implementations.
 
 use crate::clipboard::ClipboardManager;
+use crate::snippets::variables;
+use std::collections::HashMap;
 
-pub fn handle(expansion: String, clipboard: &ClipboardManager) -> Result<(), String> {
+pub fn handle(
+    expansion: String,
+    inputs: HashMap<String, String>,
+    clipboard: &ClipboardManager,
+) -> Result<(), String> {
+    // Read `{clipboard}` before step 1 overwrites it.
+    let clipboard_text = if variables::uses_clipboard(&expansion) {
+        clipboard.read_text()
+    } else {
+        None
+    };
+    let text = variables::expand(
+        &expansion,
+        &variables::Context {
+            clipboard: clipboard_text.as_deref(),
+            now: chrono::Local::now(),
+            inputs: &inputs,
+        },
+    );
     // Step 1: copy to clipboard. Always do this, even if step 2
     // fails — the user can paste manually as a fallback.
-    clipboard.copy_to_clipboard(&expansion)?;
+    clipboard.copy_to_clipboard(&text)?;
     // Step 2: OS paste.
     paste_via_os()
 }

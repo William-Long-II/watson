@@ -202,6 +202,12 @@ impl ClipboardManager {
         Ok(true)
     }
 
+    /// Current system clipboard text, or `None` when it holds no
+    /// text (image, empty, or unreadable).
+    pub fn read_text(&self) -> Option<String> {
+        Clipboard::new().ok()?.get_text().ok()
+    }
+
     pub fn copy_to_clipboard(&self, content: &str) -> Result<(), String> {
         let mut clipboard = Clipboard::new().map_err(|e| e.to_string())?;
         clipboard.set_text(content).map_err(|e| e.to_string())?;
