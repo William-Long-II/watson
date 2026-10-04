@@ -26,7 +26,7 @@ use snippets::SnippetsManager;
 use warnings::{StartupWarning, StartupWarnings};
 use db::{AppEntry, Database};
 use indexers::{get_indexer, AppIndexer};
-use search::dispatch::{classify_prefix_route, Route, SubQuery};
+use search::dispatch::{classify_prefix_route, match_script_command, Route, SubQuery};
 use search::provider::ResultProvider;
 use search::providers::apps::AppsProvider;
 use search::providers::browser_tabs::BrowserTabsProvider;
@@ -34,6 +34,7 @@ use search::providers::calculator::CalculatorProvider;
 use search::providers::captures::CapturesProvider;
 use search::providers::file_search::FileSearchProvider;
 use search::providers::notes::NotesProvider;
+use search::providers::script_commands::ScriptCommandProvider;
 use search::providers::snippets::SnippetsProvider;
 use search::providers::system_commands::SystemCommandsProvider;
 use search::providers::web_search::WebSearchProvider;
@@ -212,6 +213,25 @@ fn clipboard_route_results(state: &State<'_, AppState>, sub: SubQuery) -> Vec<Se
 
 #[tauri::command]
 async fn search(query: String, state: State<'_, AppState>) -> Result<Vec<SearchResult>, String> {
+    // WAT-501: a user-defined script keyword is the most explicit signal
+    // a query can carry, so it routes first and exclusively — ahead of
+    // the calculator (a currency script's "fx 100 usd to eur" must not
+    // be eaten by the unit converter) and of fuzzy re-ranking (script
+    // titles needn't contain the query text).
+    let script_match = {
+        let s = state.settings.read().unwrap();
+        match_script_command(&query, &s.script_commands)
+            .map(|(index, sub)| (s.script_commands[index].clone(), sub))
+    };
+    if let Some((command, subquery)) = script_match {
+        return Ok(ScriptCommandProvider {
+            command: &command,
+            subquery,
+        }
+        .search(&query)
+        .await);
+    }
+
     // WAT-203: inline calculator runs first and short-circuits when the
     // query looks like math or a unit/currency conversion. The detector
     // is conservative — ordinary search queries ("apple", "chrome",

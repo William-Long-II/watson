@@ -21,6 +21,33 @@ pub struct Settings {
     pub file_search: FileSearchSettings,
     #[serde(default)]
     pub clipboard: ClipboardSettings,
+    /// WAT-501: user-defined script commands. Typing `<keyword> <query>`
+    /// runs the script with the query and renders its JSON stdout as
+    /// results. Empty by default — scripts are opt-in.
+    #[serde(default)]
+    pub script_commands: Vec<ScriptCommand>,
+}
+
+/// WAT-501 / WAT-502: one user-defined script command. See the README's
+/// "Script commands" section for the stdout JSON contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScriptCommand {
+    pub name: String,
+    pub keyword: String,
+    /// Path to the script. `~/` is expanded to the home directory.
+    pub script: String,
+    /// Optional interpreter command line (e.g. `/opt/homebrew/bin/node`
+    /// or `python3 -u`). When unset, the interpreter is inferred from the
+    /// script's extension; scripts with no known extension are executed
+    /// directly (shebang / .exe / .bat).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interpreter: Option<String>,
+    /// Fallback icon (emoji) for results that don't set their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Kill the script if it hasn't exited after this many milliseconds.
+    #[serde(default = "default_script_timeout_ms")]
+    pub timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -146,6 +173,8 @@ fn default_excluded_patterns() -> Vec<String> {
 
 fn default_max_depth() -> usize { 5 }
 
+pub fn default_script_timeout_ms() -> u64 { 5_000 }
+
 fn default_true() -> bool { true }
 fn default_hotkey() -> String { "Alt+Space".to_string() }
 fn default_max_results() -> usize { 8 }
@@ -180,6 +209,7 @@ impl Default for Settings {
             web_searches: default_web_searches(),
             file_search: FileSearchSettings::default(),
             clipboard: ClipboardSettings::default(),
+            script_commands: Vec::new(),
         }
     }
 }

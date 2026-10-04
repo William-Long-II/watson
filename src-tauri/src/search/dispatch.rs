@@ -21,7 +21,7 @@
 //!    not configured one, the match is reported but flagged as `NeedsInstance`
 //!    so the caller can skip it.
 
-use crate::config::settings::WebSearch;
+use crate::config::settings::{ScriptCommand, WebSearch};
 
 /// Reserved query prefixes that short-circuit before web-search keyword matching.
 /// Using one of these as a web-search keyword makes that web search unreachable.
@@ -162,10 +162,67 @@ pub fn match_web_search(query: &str, web_searches: &[WebSearch]) -> WebSearchMat
     WebSearchMatch::None
 }
 
+/// WAT-501: return the index of the first script command whose keyword
+/// prefixes `query`, plus the text after it. Unlike web searches, an empty
+/// subquery ("w ") still matches so list-style scripts can run with no
+/// argument; the bare keyword ("w") does not, so typing a short keyword
+/// doesn't hijack app search on every keystroke. Commands with a blank
+/// keyword or script path are skipped.
+pub fn match_script_command(query: &str, commands: &[ScriptCommand]) -> Option<(usize, String)> {
+    commands.iter().enumerate().find_map(|(index, cmd)| {
+        let keyword = cmd.keyword.trim();
+        if keyword.is_empty() || cmd.script.trim().is_empty() {
+            return None;
+        }
+        let sub = query.strip_prefix(keyword)?.strip_prefix(' ')?;
+        Some((index, sub.trim().to_string()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::settings::WebSearch;
+
+    fn script(keyword: &str, path: &str) -> ScriptCommand {
+        ScriptCommand {
+            name: keyword.to_string(),
+            keyword: keyword.to_string(),
+            script: path.to_string(),
+            interpreter: None,
+            icon: None,
+            timeout_ms: 5_000,
+        }
+    }
+
+    #[test]
+    fn script_command_matches_keyword_plus_space() {
+        let cmds = vec![script("w", "/s/weather.sh")];
+        assert_eq!(
+            match_script_command("w london", &cmds),
+            Some((0, "london".to_string()))
+        );
+    }
+
+    #[test]
+    fn script_command_matches_keyword_with_empty_subquery() {
+        let cmds = vec![script("todo", "/s/todo.py")];
+        assert_eq!(match_script_command("todo ", &cmds), Some((0, String::new())));
+    }
+
+    #[test]
+    fn script_command_bare_keyword_or_longer_word_does_not_match() {
+        let cmds = vec![script("w", "/s/weather.sh")];
+        assert_eq!(match_script_command("w", &cmds), None);
+        assert_eq!(match_script_command("word", &cmds), None);
+    }
+
+    #[test]
+    fn script_command_skips_blank_keyword_or_path() {
+        let cmds = vec![script("", "/s/a.sh"), script("x", "  "), script("y", "/s/y.sh")];
+        assert_eq!(match_script_command(" a", &cmds), None);
+        assert_eq!(match_script_command("x a", &cmds), None);
+        assert_eq!(match_script_command("y a", &cmds), Some((2, "a".to_string())));
+    }
 
     fn ws(keyword: &str, url: &str, instance: Option<&str>) -> WebSearch {
         WebSearch {

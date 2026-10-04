@@ -132,6 +132,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     // renders the quick-tips placeholder as before.
     try {
       const results = await invoke<SearchResult[]>('search', { query });
+      // Script commands make some queries slow; drop a response that
+      // lands after the user has already typed something newer.
+      if (get().query !== query) return;
       set({ results });
       get().resizeWindow();
     } catch (error) {

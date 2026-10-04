@@ -66,6 +66,10 @@ pub enum ResultType {
     /// `SelectionItemPattern.Select()` on the underlying TabItem and
     /// brings the parent window to front.
     BrowserTab,
+    /// WAT-501: a row emitted by a user-defined script command. The
+    /// action comes from the script's JSON output (open_url,
+    /// copy_clipboard, open_file).
+    ScriptCommand,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
