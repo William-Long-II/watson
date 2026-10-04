@@ -128,6 +128,16 @@ function SnippetIcon() {
   );
 }
 
+function SceneIcon() {
+  return (
+    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center">
+      <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <polygon points="6 3 20 12 6 21 6 3" />
+      </svg>
+    </div>
+  );
+}
+
 function CalculatorIcon() {
   return (
     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center">
@@ -209,6 +219,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return <WindowIcon />;
       case 'browser_tab':
         return <BrowserTabIcon />;
+      case 'scene':
+        return <SceneIcon />;
       default:
         return <DefaultIcon />;
     }
@@ -236,6 +248,8 @@ export function ResultItem({ result, isSelected, onClick, index }: ResultItemPro
         return 'Win';
       case 'browser_tab':
         return 'Tab';
+      case 'scene':
+        return 'Scene';
       default:
         return '';
     }

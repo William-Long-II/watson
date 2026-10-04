@@ -50,6 +50,10 @@ pub fn migrations() -> Migrations<'static> {
         // Add `icon_cache_mtime` to track the mtime of the app when its
         // icon was last cached.
         M::up(SCHEMA_V006),
+        // 007 — Phase 2a (#74) Scenes. A named, ordered list of
+        // actions run with one keystroke. Steps are a JSON array —
+        // always read and written whole, so no child table.
+        M::up(SCHEMA_V007),
     ])
 }
 
@@ -166,6 +170,19 @@ const SCHEMA_V006: &str = r#"
 ALTER TABLE app_launches ADD COLUMN icon_cache_mtime INTEGER;
 "#;
 
+const SCHEMA_V007: &str = r#"
+CREATE TABLE IF NOT EXISTS scenes (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    icon TEXT,
+    steps_json TEXT NOT NULL DEFAULT '[]',
+    inter_step_delay_ms INTEGER NOT NULL DEFAULT 200,
+    created_at INTEGER NOT NULL,
+    modified_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scenes_name ON scenes(name);
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +206,7 @@ mod tests {
             .unwrap();
         // Bump this expectation whenever a new migration is appended
         // to `migrations()`.
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -201,7 +218,7 @@ mod tests {
         let version: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -223,7 +240,7 @@ mod tests {
         let post: i32 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(post, 6);
+        assert_eq!(post, 7);
     }
 
     #[test]
@@ -242,6 +259,7 @@ mod tests {
             "file_opens",
             "clipboard_pins",
             "snippets",
+            "scenes",
         ] {
             let exists: i64 = conn
                 .query_row(
